@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>黔衣有话 · 第一阶段演示</title>
+  <style>
+    body { font-family: sans-serif; max-width: 1100px; margin: 20px auto; line-height: 1.5; }
+    section { border: 1px solid #999; padding: 14px; margin-bottom: 16px; }
+    input, select, button { padding: 7px; margin: 4px; }
+    input[type=text] { width: 65%; }
+    pre { white-space: pre-wrap; background: #f4f4f4; padding: 10px; max-height: 360px; overflow: auto; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .error { color: #b00020; }
+  </style>
+</head>
+<body>
+  <h1>黔衣有话 · 第一阶段演示</h1>
+  <p>画像采集 → DeepSeek 建库 → 本地 BGE 向量化 → 混合检索 → 决策留痕 → Agent 记忆</p>
+
+  <section>
+    <h2>1. 多轮画像采集</h2>
+    <button id="startSession">开始画像采集</button>
+    <p id="question">点击开始。</p>
+    <div class="row">
+      <input id="answer" type="text" placeholder="输入回答">
+      <button id="sendAnswer" disabled>发送</button>
+      <button id="confirmProfile" disabled>确认画像</button>
+    </div>
+    <pre id="profileOutput"></pre>
+  </section>
+
+  <section>
+    <h2>2. 一键建库</h2>
+    <p>当前博主 ID：<strong id="bloggerId">无</strong></p>
+    <button id="buildLibrary" disabled>生成三库并向量化</button>
+    <pre id="buildOutput"></pre>
+  </section>
+
+  <section>
+    <h2>3. 混合检索</h2>
+    <div class="row">
+      <input id="query" type="text" placeholder="例如：贵州酸味美食、苗族手工艺">
+      <select id="libType">
+        <option value="">全部库</option>
+        <option value="knowledge">知识库</option>
+        <option value="material">素材库</option>
+        <option value="algorithm">算法库</option>
+      </select>
+      <button id="searchAssets" disabled>检索</button>
+    </div>
+    <pre id="searchOutput"></pre>
+  </section>
+
+  <section>
+    <h2>4. 决策记录</h2>
+    <button id="loadDecisions" disabled>查看决策</button>
+    <pre id="decisionOutput"></pre>
+  </section>
+
+  <section>
+    <h2>5. 短期任务记忆与恢复</h2>
+    <div class="row">
+      <button id="createTask" disabled>创建演示任务</button>
+      <input id="taskMessage" type="text" value="准备制作一条酸汤鱼口播内容">
+      <button id="appendTaskMessage" disabled>追加日志</button>
+      <button id="checkpointTask" disabled>保存检查点</button>
+      <button id="recoverTask" disabled>恢复任务</button>
+      <button id="completeTask" disabled>完成任务</button>
+      <button id="loadTask" disabled>查看任务日志</button>
+    </div>
+    <p>当前任务 ID：<strong id="taskId">无</strong></p>
+    <pre id="taskOutput"></pre>
+  </section>
+
+  <section>
+    <h2>6. 长期记忆召回与 Agent 上下文</h2>
+    <div class="row">
+      <input id="memoryQuery" type="text" value="我想做贵州酸汤鱼内容">
+      <button id="recallMemories" disabled>组装上下文并召回</button>
+      <button id="listMemories" disabled>查看长期记忆</button>
+    </div>
+    <pre id="memoryOutput"></pre>
+  </section>
+
+<script>
+let sessionId = null;
+let bloggerId = null;
+let taskId = null;
+const show = (id, value) => document.getElementById(id).textContent =
+  typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+
+async function api(url, options = {}) {
+  const response = await fetch(url, {headers: {'Content-Type': 'application/json'}, ...options});
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || JSON.stringify(data));
+  return data;
+}
+
+document.getElementById('startSession').onclick = async () => {
+  const data = await api('/api/v1/profile-sessions', {method: 'POST'});
+  sessionId = data.session_id;
+  show('question', data.question);
+  document.getElementById('sendAnswer').disabled = false;
+};
+
+document.getElementById('sendAnswer').onclick = async () => {
+  try {
+    const input = document.getElementById('answer');
+    const data = await api(`/api/v1/profile-sessions/${sessionId}/messages`, {
+      method: 'POST', body: JSON.stringify({message: input.value})
+    });
+    input.value = '';
+    show('profileOutput', data.collected_profile);
+    if (data.status === 'confirming') {
+      show('question', '信息采集完成，请检查并确认画像。');
+      document.getElementById('sendAnswer').disabled = true;
+      document.getElementById('confirmProfile').disabled = false;
+    } else show('question', data.question);
+  } catch (error) { show('profileOutput', `错误：${error.message}`); }
+};
+
+document.getElementById('confirmProfile').onclick = async () => {
+  try {
+    const data = await api(`/api/v1/profile-sessions/${sessionId}/confirm`, {method: 'POST'});
+    bloggerId = data.id;
+    show('profileOutput', data);
+    show('bloggerId', String(bloggerId));
+    ['buildLibrary', 'searchAssets', 'loadDecisions', 'createTask', 'recallMemories', 'listMemories']
+      .forEach(id => document.getElementById(id).disabled = false);
+  } catch (error) { show('profileOutput', `错误：${error.message}`); }
+};
+
+document.getElementById('buildLibrary').onclick = async () => {
+  show('buildOutput', '正在调用 DeepSeek 并执行本地向量化，请等待……');
+  try {
+    const data = await api(`/api/v1/bloggers/${bloggerId}/build-runs`, {
+      method: 'POST', body: JSON.stringify({idempotency_key: `${bloggerId}-${Date.now()}`})
+    });
+    show('buildOutput', data);
+  } catch (error) { show('buildOutput', `错误：${error.message}`); }
+};
+
+document.getElementById('searchAssets').onclick = async () => {
+  try {
+    const query = encodeURIComponent(document.getElementById('query').value);
+    const lib = encodeURIComponent(document.getElementById('libType').value);
+    const data = await api(`/api/v1/bloggers/${bloggerId}/assets?q=${query}&lib_type=${lib}`);
+    show('searchOutput', data);
+  } catch (error) { show('searchOutput', `错误：${error.message}`); }
+};
+
+document.getElementById('loadDecisions').onclick = async () => {
+  try { show('decisionOutput', await api(`/api/v1/bloggers/${bloggerId}/decisions`)); }
+  catch (error) { show('decisionOutput', `错误：${error.message}`); }
+};
+
+const taskUrl = suffix => `/api/v1/memory/bloggers/${bloggerId}/tasks/${taskId}${suffix}`;
+
+document.getElementById('createTask').onclick = async () => {
+  try {
+    const data = await api(`/api/v1/memory/bloggers/${bloggerId}/tasks`, {
+      method: 'POST',
+      body: JSON.stringify({
+        task_type: 'content_demo',
+        title: '第一阶段记忆演示',
+        initial_context: '已创建内容演示任务'
+      })
+    });
+    taskId = data.task_id;
+    show('taskId', taskId);
+    show('taskOutput', data);
+    ['appendTaskMessage', 'checkpointTask', 'recoverTask', 'completeTask', 'loadTask']
+      .forEach(id => document.getElementById(id).disabled = false);
+  } catch (error) { show('taskOutput', `错误：${error.message}`); }
+};
+
+document.getElementById('appendTaskMessage').onclick = async () => {
+  try {
+    const content = document.getElementById('taskMessage').value;
+    const data = await api(taskUrl('/messages'), {
+      method: 'POST', body: JSON.stringify({role: 'user', content})
+    });
+    show('taskOutput', data);
+  } catch (error) { show('taskOutput', `错误：${error.message}`); }
+};
+
+document.getElementById('checkpointTask').onclick = async () => {
+  try {
+    const data = await api(taskUrl('/checkpoints'), {
+      method: 'POST',
+      body: JSON.stringify({state: {step: 'demo'}, context_snapshot: '演示日志已记录，可从此处恢复'})
+    });
+    show('taskOutput', data);
+  } catch (error) { show('taskOutput', `错误：${error.message}`); }
+};
+
+document.getElementById('recoverTask').onclick = async () => {
+  try { show('taskOutput', await api(taskUrl('/recover'), {method: 'POST'})); }
+  catch (error) { show('taskOutput', `错误：${error.message}`); }
+};
+
+document.getElementById('completeTask').onclick = async () => {
+  try {
+    const data = await api(taskUrl('/complete'), {
+      method: 'POST',
+      body: JSON.stringify({
+        final_summary: {result: '第一阶段演示完成'},
+        memory_candidates: [{
+          memory_type: 'user_preference', title: '演示偏好候选',
+          content: '本次任务提到酸汤鱼', confidence: 0.5
+        }]
+      })
+    });
+    show('taskOutput', data);
+  } catch (error) { show('taskOutput', `错误：${error.message}`); }
+};
+
+document.getElementById('loadTask').onclick = async () => {
+  try { show('taskOutput', await api(taskUrl(''))); }
+  catch (error) { show('taskOutput', `错误：${error.message}`); }
+};
+
+document.getElementById('recallMemories').onclick = async () => {
+  try {
+    const data = await api(`/api/v1/memory/bloggers/${bloggerId}/context`, {
+      method: 'POST',
+      body: JSON.stringify({
+        user_input: document.getElementById('memoryQuery').value,
+        task_id: taskId,
+        top_k: 5
+      })
+    });
+    show('memoryOutput', data);
+  } catch (error) { show('memoryOutput', `错误：${error.message}`); }
+};
+
+document.getElementById('listMemories').onclick = async () => {
+  try {
+    show('memoryOutput', await api(`/api/v1/memory/bloggers/${bloggerId}/memories?status=all`));
+  } catch (error) { show('memoryOutput', `错误：${error.message}`); }
+};
+</script>
+</body>
+</html>

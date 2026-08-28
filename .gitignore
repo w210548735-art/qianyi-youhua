@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 虚拟环境与本地模型缓存
+.venv/
+/models/
+.cache/
+
+# 密钥和本地配置
+.env
+*.key
+*_apikey.txt
+deepseek_apikey.txt
+
+# 运行时数据
+/data/
+logs/
+.pytest-tmp/
+.pytest-*/
+
+# 编辑器与系统文件
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
