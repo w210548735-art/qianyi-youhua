@@ -7,9 +7,10 @@ Schema 只描述 API 边界，不承担生成结果的可信度判断；资产�
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 OutputType = Literal["script", "storyboard", "route_rec"]
 OutputStatus = Literal["pending", "running", "succeeded", "failed", "draft", "deleted"]
@@ -232,7 +233,18 @@ class MetricCreateRequest(BaseModel):
     likes: int = Field(default=0, ge=0)
     comments: int = Field(default=0, ge=0)
     collects: int = Field(default=0, ge=0)
+    shares: int = Field(default=0, ge=0)
+    actual_revenue: Decimal | None = Field(default=None, ge=0)
+    actual_cost: Decimal | None = Field(default=None, ge=0)
+    user_confirmed: bool = False
     collected_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_commercial_boundary(self) -> MetricCreateRequest:
+        has_actual = self.actual_revenue is not None or self.actual_cost is not None
+        if has_actual and (self.source_type != "manual" or not self.user_confirmed):
+            raise ValueError("实际收入和成本只能由用户确认的 manual 指标录入")
+        return self
 
 
 MetricRequest = MetricCreateRequest
@@ -249,6 +261,10 @@ class MetricRead(BaseModel):
     likes: int = Field(ge=0)
     comments: int = Field(ge=0)
     collects: int = Field(ge=0)
+    shares: int = Field(ge=0)
+    actual_revenue: float | None = Field(default=None, ge=0)
+    actual_cost: float | None = Field(default=None, ge=0)
+    user_confirmed: bool
     idempotency_key: str
     collected_at: datetime
     created_at: datetime

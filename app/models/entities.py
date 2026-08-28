@@ -38,6 +38,7 @@ class Blogger(Base):
     viral_topic: Mapped[str | None] = mapped_column(Text)
     frequency: Mapped[str | None] = mapped_column(String(50))
     suit_type: Mapped[str | None] = mapped_column(Text)
+    knowledge_focus: Mapped[str | None] = mapped_column(Text)
     profile_state: Mapped[str] = mapped_column(String(30), nullable=False, default="complete")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
@@ -48,6 +49,16 @@ class Blogger(Base):
     assessments: Mapped[list[Assessment]] = relationship(back_populates="blogger", cascade="all, delete-orphan")
     outputs: Mapped[list[Output]] = relationship(back_populates="blogger", cascade="all, delete-orphan")
     schedules: Mapped[list[Schedule]] = relationship(back_populates="blogger", cascade="all, delete-orphan")
+    feedback_runs: Mapped[list[FeedbackRun]] = relationship(
+        back_populates="blogger", passive_deletes=True
+    )
+    feedback_profile_revisions: Mapped[list[ProfileFeedbackRevision]] = relationship(
+        back_populates="blogger", passive_deletes=True
+    )
+    operational_indicators: Mapped[list[OperationalIndicator]] = relationship(
+        back_populates="blogger", passive_deletes=True
+    )
+    reports: Mapped[list[Report]] = relationship(back_populates="blogger", passive_deletes=True)
 
 
 class ConversationSession(Base):
@@ -120,6 +131,10 @@ class Asset(Base):
     __tablename__ = "asset"
     __table_args__ = (
         CheckConstraint("credibility >= 0 AND credibility <= 5", name="ck_asset_credibility"),
+        CheckConstraint(
+            "effect_weight IS NULL OR (effect_weight >= 0 AND effect_weight <= 1)",
+            name="ck_asset_effect_weight",
+        ),
         UniqueConstraint("blogger_id", "dedupe_key", name="uq_asset_blogger_dedupe"),
     )
 
@@ -135,6 +150,8 @@ class Asset(Base):
     origin: Mapped[str] = mapped_column(String(20), nullable=False, default="seed")
     dedupe_key: Mapped[str] = mapped_column(String(64), nullable=False)
     manual_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    effect: Mapped[str | None] = mapped_column(String(50))
+    effect_weight: Mapped[float | None] = mapped_column(Float)
     decision_id: Mapped[int | None] = mapped_column(ForeignKey("decision_log.id", ondelete="SET NULL"))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -147,6 +164,9 @@ class Asset(Base):
     sources: Mapped[list[AssetSource]] = relationship(cascade="all, delete-orphan")
     output_assets: Mapped[list[OutputAsset]] = relationship(back_populates="asset")
     asset_places: Mapped[list[AssetPlace]] = relationship(back_populates="asset")
+    effect_revisions: Mapped[list[AssetEffectRevision]] = relationship(
+        back_populates="asset", passive_deletes=True
+    )
 
 
 class AssetSource(Base):
@@ -206,6 +226,9 @@ class Place(Base):
     blogger: Mapped[Blogger] = relationship(back_populates="places")
     output_places: Mapped[list[OutputPlace]] = relationship(back_populates="place")
     asset_places: Mapped[list[AssetPlace]] = relationship(back_populates="place")
+    commercial_revisions: Mapped[list[PlaceCommercialRevision]] = relationship(
+        back_populates="place", passive_deletes=True
+    )
 
 
 class Assessment(Base):
@@ -388,6 +411,8 @@ class TaskSession(Base):
 
     assessments: Mapped[list[Assessment]] = relationship(back_populates="task")
     outputs: Mapped[list[Output]] = relationship(back_populates="task")
+    feedback_runs: Mapped[list[FeedbackRun]] = relationship(back_populates="task")
+    reports: Mapped[list[Report]] = relationship(back_populates="task")
 
 
 class SessionMessage(Base):
@@ -495,6 +520,7 @@ class Output(Base):
     )
     schedules: Mapped[list[Schedule]] = relationship(back_populates="output")
     metrics: Mapped[list[Metric]] = relationship(back_populates="output")
+    feedback_runs: Mapped[list[FeedbackRun]] = relationship(back_populates="output")
 
 
 class OutputAsset(Base):
@@ -680,6 +706,24 @@ class Metric(Base):
         CheckConstraint("likes >= 0", name="ck_metric_likes_nonnegative"),
         CheckConstraint("comments >= 0", name="ck_metric_comments_nonnegative"),
         CheckConstraint("collects >= 0", name="ck_metric_collects_nonnegative"),
+        CheckConstraint("shares >= 0", name="ck_metric_shares_nonnegative"),
+        CheckConstraint(
+            "actual_revenue IS NULL OR actual_revenue >= 0",
+            name="ck_metric_actual_revenue_nonnegative",
+        ),
+        CheckConstraint(
+            "actual_cost IS NULL OR actual_cost >= 0",
+            name="ck_metric_actual_cost_nonnegative",
+        ),
+        CheckConstraint(
+            "user_confirmed = 0 OR source_type = 'manual'",
+            name="ck_metric_confirmation_manual_only",
+        ),
+        CheckConstraint(
+            "(actual_revenue IS NULL AND actual_cost IS NULL) "
+            "OR (source_type = 'manual' AND user_confirmed = 1)",
+            name="ck_metric_actual_values_confirmed_manual",
+        ),
         UniqueConstraint(
             "schedule_id",
             "idempotency_key",
@@ -699,12 +743,17 @@ class Metric(Base):
     likes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     comments: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     collects: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    shares: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    actual_revenue: Mapped[float | None] = mapped_column(Float)
+    actual_cost: Mapped[float | None] = mapped_column(Float)
+    user_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     idempotency_key: Mapped[str] = mapped_column(String(100), nullable=False)
     collected_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     output: Mapped[Output] = relationship(back_populates="metrics")
     schedule: Mapped[Schedule] = relationship(back_populates="metrics")
+    feedback_runs: Mapped[list[FeedbackRun]] = relationship(back_populates="primary_metric")
 
 
 class CollectionJob(Base):
@@ -732,3 +781,451 @@ class CollectionJob(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     schedule: Mapped[Schedule] = relationship(back_populates="collection_jobs")
+
+
+class FeedbackRun(Base):
+    """一次反馈分析及其冻结输入，候选确认前不改变任何业务数据。"""
+
+    __tablename__ = "feedback_run"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'analyzed', 'applied', 'rejected', 'failed')",
+            name="ck_feedback_run_status",
+        ),
+        UniqueConstraint(
+            "blogger_id",
+            "idempotency_key",
+            name="uq_feedback_run_blogger_idempotency",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    blogger_id: Mapped[int] = mapped_column(
+        ForeignKey("blogger.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    output_id: Mapped[int] = mapped_column(
+        ForeignKey("output.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    primary_metric_id: Mapped[int] = mapped_column(
+        ForeignKey("metric.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("task_session.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    analysis_json: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text)
+    prompt_version: Mapped[str] = mapped_column(String(50), nullable=False, default="phase4-feedback-v1")
+    model_name: Mapped[str] = mapped_column(String(200), nullable=False, default="deepseek-v4-flash")
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    blogger: Mapped[Blogger] = relationship(back_populates="feedback_runs")
+    output: Mapped[Output] = relationship(back_populates="feedback_runs")
+    primary_metric: Mapped[Metric] = relationship(back_populates="feedback_runs")
+    task: Mapped[TaskSession | None] = relationship(back_populates="feedback_runs")
+    evidences: Mapped[list[FeedbackEvidence]] = relationship(
+        back_populates="feedback_run", cascade="all, delete-orphan", order_by="FeedbackEvidence.id"
+    )
+    profile_revisions: Mapped[list[ProfileFeedbackRevision]] = relationship(
+        back_populates="feedback_run",
+        cascade="all, delete-orphan",
+        order_by="ProfileFeedbackRevision.id",
+    )
+    asset_revisions: Mapped[list[AssetEffectRevision]] = relationship(
+        back_populates="feedback_run",
+        cascade="all, delete-orphan",
+        order_by="AssetEffectRevision.id",
+    )
+    place_revisions: Mapped[list[PlaceCommercialRevision]] = relationship(
+        back_populates="feedback_run",
+        cascade="all, delete-orphan",
+        order_by="PlaceCommercialRevision.id",
+    )
+    library_revisions: Mapped[list[LibraryEvolutionRevision]] = relationship(
+        back_populates="feedback_run",
+        cascade="all, delete-orphan",
+        order_by="LibraryEvolutionRevision.id",
+    )
+    indicator_observations: Mapped[list[IndicatorObservation]] = relationship(
+        back_populates="feedback_run"
+    )
+
+
+class FeedbackEvidence(Base):
+    """反馈结论引用的冻结证据；ref_id 由 evidence_type 解释。"""
+
+    __tablename__ = "feedback_evidence"
+    __table_args__ = (
+        CheckConstraint(
+            "evidence_type IN ('metric', 'output', 'asset', 'place', "
+            "'output_asset', 'output_place', 'decision')",
+            name="ck_feedback_evidence_type",
+        ),
+        UniqueConstraint(
+            "feedback_run_id",
+            "evidence_type",
+            "ref_id",
+            name="uq_feedback_evidence_reference",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    feedback_run_id: Mapped[int] = mapped_column(
+        ForeignKey("feedback_run.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    evidence_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    ref_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    claim: Mapped[str] = mapped_column(Text, nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    feedback_run: Mapped[FeedbackRun] = relationship(back_populates="evidences")
+
+
+class ProfileFeedbackRevision(Base):
+    """画像字段的候选与确认历史。"""
+
+    __tablename__ = "profile_feedback_revision"
+    __table_args__ = (
+        CheckConstraint(
+            "field_name IN ('suit_type', 'knowledge_focus')",
+            name="ck_profile_feedback_revision_field",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'applied', 'rejected')",
+            name="ck_profile_feedback_revision_status",
+        ),
+        CheckConstraint("version > 0", name="ck_profile_feedback_revision_version"),
+        UniqueConstraint(
+            "run_id",
+            "blogger_id",
+            "field_name",
+            "version",
+            name="uq_profile_feedback_revision_version",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("feedback_run.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    blogger_id: Mapped[int] = mapped_column(
+        ForeignKey("blogger.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    field_name: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    before: Mapped[str | None] = mapped_column(Text)
+    after: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    feedback_run: Mapped[FeedbackRun] = relationship(back_populates="profile_revisions")
+    blogger: Mapped[Blogger] = relationship(back_populates="feedback_profile_revisions")
+
+
+class AssetEffectRevision(Base):
+    """资产有效性和权重的候选与确认历史，不存储或覆盖资产正文。"""
+
+    __tablename__ = "asset_effect_revision"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'applied', 'rejected')",
+            name="ck_asset_effect_revision_status",
+        ),
+        CheckConstraint("version > 0", name="ck_asset_effect_revision_version"),
+        CheckConstraint(
+            "before_weight IS NULL OR (before_weight >= 0 AND before_weight <= 1)",
+            name="ck_asset_effect_revision_before_weight",
+        ),
+        CheckConstraint(
+            "after_weight IS NULL OR (after_weight >= 0 AND after_weight <= 1)",
+            name="ck_asset_effect_revision_after_weight",
+        ),
+        UniqueConstraint(
+            "run_id", "asset_id", "version", name="uq_asset_effect_revision_version"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("feedback_run.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    asset_id: Mapped[int] = mapped_column(
+        ForeignKey("asset.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    before_effect: Mapped[str | None] = mapped_column(String(50))
+    after_effect: Mapped[str | None] = mapped_column(String(50))
+    before_weight: Mapped[float | None] = mapped_column(Float)
+    after_weight: Mapped[float | None] = mapped_column(Float)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    feedback_run: Mapped[FeedbackRun] = relationship(back_populates="asset_revisions")
+    asset: Mapped[Asset] = relationship(back_populates="effect_revisions")
+
+
+class PlaceCommercialRevision(Base):
+    """地点商业白名单字段的 JSON 候选与确认历史。"""
+
+    __tablename__ = "place_commercial_revision"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'applied', 'rejected')",
+            name="ck_place_commercial_revision_status",
+        ),
+        CheckConstraint("version > 0", name="ck_place_commercial_revision_version"),
+        UniqueConstraint(
+            "run_id", "place_id", "version", name="uq_place_commercial_revision_version"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("feedback_run.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    place_id: Mapped[int] = mapped_column(
+        ForeignKey("place.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    before_json: Mapped[str] = mapped_column(Text, nullable=False)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    feedback_run: Mapped[FeedbackRun] = relationship(back_populates="place_revisions")
+    place: Mapped[Place] = relationship(back_populates="commercial_revisions")
+
+
+class LibraryEvolutionRevision(Base):
+    """知识、素材和算法三库的待确认进化候选。"""
+
+    __tablename__ = "library_evolution_revision"
+    __table_args__ = (
+        CheckConstraint(
+            "lib_type IN ('knowledge', 'material', 'algorithm')",
+            name="ck_library_evolution_revision_lib_type",
+        ),
+        CheckConstraint(
+            "action IN ('add', 'reinforce', 'review')",
+            name="ck_library_evolution_revision_action",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'applied', 'rejected')",
+            name="ck_library_evolution_revision_status",
+        ),
+        CheckConstraint("version > 0", name="ck_library_evolution_revision_version"),
+        UniqueConstraint(
+            "run_id",
+            "lib_type",
+            "action",
+            "candidate_json",
+            name="uq_library_evolution_revision_candidate",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("feedback_run.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    lib_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    target_asset_id: Mapped[int | None] = mapped_column(
+        ForeignKey("asset.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    candidate_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    feedback_run: Mapped[FeedbackRun] = relationship(back_populates="library_revisions")
+    target_asset: Mapped[Asset | None] = relationship()
+
+
+class OperationalIndicator(Base):
+    """绑定受控 formula_key 的经营指标定义。"""
+
+    __tablename__ = "operational_indicator"
+    __table_args__ = (
+        CheckConstraint(
+            "category IN ('money', 'traffic', 'product', 'supplier')",
+            name="ck_operational_indicator_category",
+        ),
+        CheckConstraint(
+            "direction IN ('higher_better', 'lower_better', 'neutral')",
+            name="ck_operational_indicator_direction",
+        ),
+        CheckConstraint("version > 0", name="ck_operational_indicator_version"),
+        UniqueConstraint(
+            "blogger_id",
+            "category",
+            "name",
+            name="uq_operational_indicator_blogger_name",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    blogger_id: Mapped[int] = mapped_column(
+        ForeignKey("blogger.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    category: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    meaning: Mapped[str] = mapped_column(Text, nullable=False)
+    formula_key: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    source_tables_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    unit: Mapped[str] = mapped_column(String(50), nullable=False)
+    direction: Mapped[str] = mapped_column(String(30), nullable=False, default="neutral")
+    target_value: Mapped[float | None] = mapped_column(Float)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    blogger: Mapped[Blogger] = relationship(back_populates="operational_indicators")
+    observations: Mapped[list[IndicatorObservation]] = relationship(
+        back_populates="indicator", passive_deletes=True, order_by="IndicatorObservation.observed_at"
+    )
+
+
+class IndicatorObservation(Base):
+    """指标在某次反馈、报告或独立重算时形成的不可变观察。"""
+
+    __tablename__ = "indicator_observation"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('ok', 'data_insufficient')",
+            name="ck_indicator_observation_status",
+        ),
+        CheckConstraint(
+            "trend IN ('up', 'down', 'flat', 'unknown')",
+            name="ck_indicator_observation_trend",
+        ),
+        UniqueConstraint(
+            "indicator_id", "feedback_run_id", name="uq_indicator_observation_feedback_run"
+        ),
+        UniqueConstraint(
+            "indicator_id", "report_id", name="uq_indicator_observation_report"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    indicator_id: Mapped[int] = mapped_column(
+        ForeignKey("operational_indicator.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    feedback_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("feedback_run.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    report_id: Mapped[int | None] = mapped_column(
+        ForeignKey("report.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    value: Mapped[float | None] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    trend: Mapped[str] = mapped_column(String(30), nullable=False, default="unknown")
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    observed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow, index=True)
+
+    indicator: Mapped[OperationalIndicator] = relationship(back_populates="observations")
+    feedback_run: Mapped[FeedbackRun | None] = relationship(back_populates="indicator_observations")
+    report: Mapped[Report | None] = relationship(back_populates="indicator_observations")
+
+
+class Report(Base):
+    """经营报告的确定性冻结快照及 Agent 受校验解释。"""
+
+    __tablename__ = "report"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'succeeded', 'failed')",
+            name="ck_report_status",
+        ),
+        UniqueConstraint(
+            "blogger_id", "idempotency_key", name="uq_report_blogger_idempotency"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    blogger_id: Mapped[int] = mapped_column(
+        ForeignKey("blogger.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("task_session.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    conclusion_json: Mapped[str | None] = mapped_column(Text)
+    charts_json: Mapped[str | None] = mapped_column(Text)
+    suggestions_json: Mapped[str | None] = mapped_column(Text)
+    data_quality_json: Mapped[str | None] = mapped_column(Text)
+    prompt_version: Mapped[str] = mapped_column(String(50), nullable=False, default="phase4-report-v1")
+    model_name: Mapped[str] = mapped_column(String(200), nullable=False, default="deepseek-v4-flash")
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    blogger: Mapped[Blogger] = relationship(back_populates="reports")
+    task: Mapped[TaskSession | None] = relationship(back_populates="reports")
+    evidences: Mapped[list[ReportEvidence]] = relationship(
+        back_populates="report", cascade="all, delete-orphan", order_by="ReportEvidence.id"
+    )
+    indicator_observations: Mapped[list[IndicatorObservation]] = relationship(
+        back_populates="report"
+    )
+
+
+class ReportEvidence(Base):
+    """报告事实与图表引用的冻结证据。"""
+
+    __tablename__ = "report_evidence"
+    __table_args__ = (
+        CheckConstraint(
+            "evidence_type IN ('metric', 'output', 'place', 'indicator', 'feedback_run')",
+            name="ck_report_evidence_type",
+        ),
+        UniqueConstraint(
+            "report_id", "evidence_type", "ref_id", name="uq_report_evidence_reference"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(
+        ForeignKey("report.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    evidence_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    ref_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    claim: Mapped[str] = mapped_column(Text, nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    report: Mapped[Report] = relationship(back_populates="evidences")

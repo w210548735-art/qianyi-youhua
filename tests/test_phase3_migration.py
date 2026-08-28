@@ -55,6 +55,7 @@ PHASE3_TABLES = {
     "metric",
     "collection_job",
 }
+PHASE3_HEAD = "0005_phase3_metric_contract_fix"
 
 
 def migration_config(db_path: Path) -> Config:
@@ -64,7 +65,7 @@ def migration_config(db_path: Path) -> Config:
     return config
 
 
-def upgrade(db_path: Path, revision: str = "head") -> None:
+def upgrade(db_path: Path, revision: str = PHASE3_HEAD) -> None:
     command.upgrade(migration_config(db_path), revision)
 
 

@@ -33,6 +33,7 @@ class BloggerService:
         "viral_topic",
         "frequency",
         "suit_type",
+        "knowledge_focus",
     }
 
     def __init__(
@@ -151,4 +152,5 @@ class BloggerService:
             "viral_topic": blogger.viral_topic,
             "frequency": blogger.frequency,
             "suit_type": blogger.suit_type,
+            "knowledge_focus": getattr(blogger, "knowledge_focus", None),
         }

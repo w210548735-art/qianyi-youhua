@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 
 import pytest
 
@@ -193,3 +194,72 @@ def test_collection_rejects_negative_and_platform_metrics(db) -> None:
     with pytest.raises(CollectionServiceError) as platform:
         service.start_collection(owner.id, schedule_id, "platform-1", source_type="platform")
     assert platform.value.code == "COLLECTION_SOURCE_INVALID"
+
+
+def test_manual_collection_persists_confirmed_commercial_values_and_null_semantics(db) -> None:
+    owner = _blogger(db, name="商业反馈博主")
+    first_schedule = _schedule(db, owner.id, title="商业脚本")
+    second_schedule = _schedule(db, owner.id, title="仅流量脚本")
+    service = CollectionService(db)
+
+    first_job = service.start_collection(
+        owner.id, first_schedule, "manual-commercial", source_type="manual"
+    )
+    service.execute_collection(
+        first_job.id,
+        {
+            "source_type": "manual",
+            "views": 1000,
+            "shares": 12,
+            "actual_revenue": "500.50",
+            "actual_cost": "200.25",
+            "user_confirmed": True,
+            "collected_at": "2026-09-04T12:30:00",
+        },
+        blogger_id=owner.id,
+    )
+    second_job = service.start_collection(
+        owner.id, second_schedule, "manual-traffic-only", source_type="manual"
+    )
+    service.execute_collection(
+        second_job.id,
+        {"source_type": "manual", "views": 100, "shares": 2},
+        blogger_id=owner.id,
+    )
+
+    commercial = db.query(Metric).filter(Metric.schedule_id == first_schedule).one()
+    assert commercial.shares == 12
+    assert commercial.actual_revenue == Decimal("500.50")
+    assert commercial.actual_cost == Decimal("200.25")
+    assert commercial.user_confirmed is True
+    traffic_only = db.query(Metric).filter(Metric.schedule_id == second_schedule).one()
+    assert traffic_only.actual_revenue is None
+    assert traffic_only.actual_cost is None
+
+
+def test_simulated_or_unconfirmed_collection_cannot_persist_actual_money(db) -> None:
+    owner = _blogger(db, name="模拟边界博主")
+    simulated_schedule = _schedule(db, owner.id, title="模拟脚本")
+    manual_schedule = _schedule(db, owner.id, title="未确认脚本")
+    service = CollectionService(db)
+
+    simulated = service.start_collection(owner.id, simulated_schedule, "sim-money")
+    with pytest.raises(CollectionServiceError) as simulated_error:
+        service.execute_collection(
+            simulated.id,
+            {"source_type": "simulated", "actual_revenue": 100, "user_confirmed": True},
+            blogger_id=owner.id,
+        )
+    assert simulated_error.value.code == "COLLECTION_METRIC_INVALID"
+
+    manual = service.start_collection(
+        owner.id, manual_schedule, "manual-unconfirmed", source_type="manual"
+    )
+    with pytest.raises(CollectionServiceError) as unconfirmed_error:
+        service.execute_collection(
+            manual.id,
+            {"source_type": "manual", "actual_cost": 10, "user_confirmed": False},
+            blogger_id=owner.id,
+        )
+    assert unconfirmed_error.value.code == "COLLECTION_METRIC_INVALID"
+    assert db.query(Metric).count() == 0

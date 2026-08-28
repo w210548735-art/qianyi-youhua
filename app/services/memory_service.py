@@ -142,6 +142,8 @@ class MemoryService:
         self,
         blogger_id: int,
         user_confirmed: bool | None = None,
+        *,
+        commit: bool = True,
     ) -> MemoryRecord:
         """将已确认的博主画像融合为一条 ``profile_fact`` 记忆。
 
@@ -162,7 +164,7 @@ class MemoryService:
             status="active" if confirmed else "candidate",
             user_confirmed=confirmed,
         )
-        return self._write_drafts([draft])[0]
+        return self._write_drafts([draft], commit=commit)[0]
 
     # 语义更明确的别名，便于画像确认服务集成。
     remember_profile = sync_profile
@@ -254,6 +256,8 @@ class MemoryService:
         blogger_id: int,
         decisions: Iterable[DecisionLog | int] | None = None,
         user_confirmed: bool = False,
+        *,
+        commit: bool = True,
     ) -> list[MemoryRecord]:
         """保存正式决策摘要。
 
@@ -286,7 +290,7 @@ class MemoryService:
             )
         if not drafts:
             return []
-        return self._write_drafts(drafts)
+        return self._write_drafts(drafts, commit=commit)
 
     remember_decisions = sync_decisions
     ingest_decisions = sync_decisions
@@ -296,10 +300,17 @@ class MemoryService:
         blogger_id: int,
         decision: DecisionLog | int,
         user_confirmed: bool = False,
+        *,
+        commit: bool = True,
     ) -> MemoryRecord | None:
         """同步单条决策摘要。"""
 
-        records = self.sync_decisions(blogger_id, [decision], user_confirmed=user_confirmed)
+        records = self.sync_decisions(
+            blogger_id,
+            [decision],
+            user_confirmed=user_confirmed,
+            commit=commit,
+        )
         return records[0] if records else None
 
     remember_decision = sync_decision
@@ -407,6 +418,7 @@ class MemoryService:
         confidence: float = 1.0,
         status: str = "candidate",
         user_confirmed: bool = False,
+        commit: bool = True,
     ) -> MemoryRecord:
         """创建一条长期记忆。
 
@@ -426,9 +438,15 @@ class MemoryService:
             status=status,
             user_confirmed=user_confirmed,
         )
-        return self._write_drafts([draft])[0]
+        return self._write_drafts([draft], commit=commit)[0]
 
-    def promote_memory(self, memory_id: int, user_confirmed: bool = False) -> MemoryRecord:
+    def promote_memory(
+        self,
+        memory_id: int,
+        user_confirmed: bool = False,
+        *,
+        commit: bool = True,
+    ) -> MemoryRecord:
         """在明确用户确认后将候选记忆晋升为 active。"""
 
         record = self.db.get(MemoryRecord, memory_id)
@@ -450,8 +468,11 @@ class MemoryService:
             self._supersede_active_siblings(record)
             record.status = "active"
             record.confidence = max(record.confidence, 1.0)
-            self.db.commit()
-            self.db.refresh(record)
+            if commit:
+                self.db.commit()
+                self.db.refresh(record)
+            else:
+                self.db.flush()
             return record
         except Exception:
             self.db.rollback()
@@ -776,7 +797,12 @@ class MemoryService:
             user_confirmed=bool(user_confirmed),
         )
 
-    def _write_drafts(self, drafts: Sequence[_MemoryDraft]) -> list[MemoryRecord]:
+    def _write_drafts(
+        self,
+        drafts: Sequence[_MemoryDraft],
+        *,
+        commit: bool = True,
+    ) -> list[MemoryRecord]:
         """在单一事务中写入一批草稿。"""
 
         if not drafts:
@@ -800,9 +826,12 @@ class MemoryService:
                 result.append(record)
             if new_records:
                 self._attach_embeddings(new_records)
-            self.db.commit()
-            for record in result:
-                self.db.refresh(record)
+            if commit:
+                self.db.commit()
+                for record in result:
+                    self.db.refresh(record)
+            else:
+                self.db.flush()
             return result
         except Exception:
             self.db.rollback()
@@ -917,6 +946,8 @@ class MemoryService:
             "routes": blogger.routes,
             "viral_topic": blogger.viral_topic,
             "frequency": blogger.frequency,
+            "suit_type": blogger.suit_type,
+            "knowledge_focus": getattr(blogger, "knowledge_focus", None),
         }
         return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 

@@ -155,7 +155,11 @@ def _style(snapshot: Mapping[str, Any]) -> str:
 
 
 def _content_category(snapshot: Mapping[str, Any]) -> str:
-    value = _profile(snapshot).get("content_types", snapshot.get("content_types"))
+    profile = _profile(snapshot)
+    value = profile.get("knowledge_focus") or profile.get("suit_type")
+    if value:
+        return _text(str(value).split(",")[0].split("/")[0], "贵州文旅")
+    value = profile.get("content_types", snapshot.get("content_types"))
     if isinstance(value, (list, tuple)) and value:
         return _text(value[0], "贵州文旅")
     if value:

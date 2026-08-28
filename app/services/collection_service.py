@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from sqlalchemy import select
@@ -155,6 +156,16 @@ class CollectionService:
             payload_source = self._normalize_source(payload.pop("source_type", source))
             collected_at = self._coerce_datetime(payload.pop("collected_at", now))
             values = self._normalise_metrics(payload)
+            # 兼容第三阶段自定义归一化器只返回四项旧指标；数据库仍负责最终约束兜底。
+            values.setdefault("shares", 0)
+            values.setdefault("actual_revenue", None)
+            values.setdefault("actual_cost", None)
+            values.setdefault("user_confirmed", False)
+            has_actual = (
+                values["actual_revenue"] is not None or values["actual_cost"] is not None
+            )
+            if has_actual and (payload_source != "manual" or not values["user_confirmed"]):
+                raise CollectionServiceError("COLLECTION_METRIC_INVALID")
             existing_metric = self.db.scalar(
                 select(Metric).where(
                     Metric.schedule_id == schedule.id,
@@ -170,6 +181,10 @@ class CollectionService:
                     likes=values["likes"],
                     comments=values["comments"],
                     collects=values["collects"],
+                    shares=values["shares"],
+                    actual_revenue=values["actual_revenue"],
+                    actual_cost=values["actual_cost"],
+                    user_confirmed=values["user_confirmed"],
                     idempotency_key=job.idempotency_key,
                     collected_at=collected_at,
                 )
@@ -181,7 +196,7 @@ class CollectionService:
                 {
                     "source_type": payload_source,
                     "collected_at": collected_at.isoformat(),
-                    **values,
+                    **self._json_metric_values(values),
                 },
                 ensure_ascii=False,
             )
@@ -191,7 +206,12 @@ class CollectionService:
             self._record_decision(
                 schedule.blogger_id,
                 "collection_simulated" if payload_source == "simulated" else "collection_manual",
-                {"schedule_id": schedule.id, "job_id": job.id, "source_type": payload_source, **values},
+                {
+                    "schedule_id": schedule.id,
+                    "job_id": job.id,
+                    "source_type": payload_source,
+                    **self._json_metric_values(values),
+                },
                 "仅记录手工/模拟原始指标，不执行反馈判断或资产更新",
             )
             if commit:
@@ -342,12 +362,35 @@ class CollectionService:
                 raise CollectionServiceError("COLLECTION_FAILED", detail="采集器返回结构非法")
             return dict(result)
         # 固定可复现的演示数据，并明确标记为 simulated。
-        return {"source_type": "simulated", "views": 0, "likes": 0, "comments": 0, "collects": 0}
+        return {
+            "source_type": "simulated",
+            "views": 0,
+            "likes": 0,
+            "comments": 0,
+            "collects": 0,
+            "shares": 0,
+            "user_confirmed": False,
+        }
 
     @classmethod
-    def _normalise_metrics(cls, payload: Mapping[str, Any]) -> dict[str, int]:
-        result: dict[str, int] = {}
-        for field in ("views", "likes", "comments", "collects"):
+    def _normalise_metrics(
+        cls,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        allowed = {
+            "views",
+            "likes",
+            "comments",
+            "collects",
+            "shares",
+            "actual_revenue",
+            "actual_cost",
+            "user_confirmed",
+        }
+        if set(payload) - allowed:
+            raise CollectionServiceError("COLLECTION_METRIC_INVALID")
+        result: dict[str, Any] = {}
+        for field in ("views", "likes", "comments", "collects", "shares"):
             value = payload.get(field, 0)
             if isinstance(value, bool):
                 raise CollectionServiceError("COLLECTION_METRIC_INVALID")
@@ -358,7 +401,30 @@ class CollectionService:
             if number < 0:
                 raise CollectionServiceError("COLLECTION_METRIC_INVALID")
             result[field] = number
+        user_confirmed = payload.get("user_confirmed", False)
+        if not isinstance(user_confirmed, bool):
+            raise CollectionServiceError("COLLECTION_METRIC_INVALID")
+        result["user_confirmed"] = user_confirmed
+        for field in ("actual_revenue", "actual_cost"):
+            value = payload.get(field)
+            if value is None:
+                result[field] = None
+                continue
+            try:
+                decimal_value = Decimal(str(value))
+            except (InvalidOperation, ValueError) as exc:
+                raise CollectionServiceError("COLLECTION_METRIC_INVALID") from exc
+            if not decimal_value.is_finite() or decimal_value < 0:
+                raise CollectionServiceError("COLLECTION_METRIC_INVALID")
+            result[field] = decimal_value
         return result
+
+    @staticmethod
+    def _json_metric_values(values: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            key: float(value) if isinstance(value, Decimal) else value
+            for key, value in values.items()
+        }
 
     @classmethod
     def _normalize_source(cls, source: str) -> str:

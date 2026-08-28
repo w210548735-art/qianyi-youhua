@@ -240,6 +240,7 @@ class LibraryAnalysisService:
             "viral_topic": blogger.viral_topic,
             "frequency": blogger.frequency,
             "suit_type": blogger.suit_type,
+            "knowledge_focus": getattr(blogger, "knowledge_focus", None),
         }
 
     @staticmethod
@@ -298,6 +299,8 @@ class LibraryAnalysisService:
             "origin": asset.origin,
             "manual_locked": asset.manual_locked,
             "decision_id": asset.decision_id,
+            "effect": getattr(asset, "effect", None),
+            "effect_weight": getattr(asset, "effect_weight", None),
             "sources": sources,
             "source_document_ids": [int(str(source["id"])) for source in sources],
             "embedding_dimension": int(vector.size) if vector is not None else None,

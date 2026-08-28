@@ -180,6 +180,10 @@ def test_output_schedule_publish_collection_full_api_and_isolation(db, tmp_path:
                     "likes": 20,
                     "comments": 3,
                     "collects": 8,
+                    "shares": 6,
+                    "actual_revenue": 500.5,
+                    "actual_cost": 200.25,
+                    "user_confirmed": True,
                     "collected_at": "2026-09-03T08:09:10",
                 },
             },
@@ -190,6 +194,10 @@ def test_output_schedule_publish_collection_full_api_and_isolation(db, tmp_path:
         assert metrics.status_code == 200
         assert metrics.json()[0]["source_type"] == "manual" and metrics.json()[0]["views"] == 120
         assert metrics.json()[0]["idempotency_key"] == "collection-api-key"
+        assert metrics.json()[0]["shares"] == 6
+        assert metrics.json()[0]["actual_revenue"] == 500.5
+        assert metrics.json()[0]["actual_cost"] == 200.25
+        assert metrics.json()[0]["user_confirmed"] is True
         assert datetime.fromisoformat(metrics.json()[0]["collected_at"]) == datetime(
             2026, 9, 3, 8, 9, 10
         )
@@ -215,6 +223,18 @@ def test_output_schedule_publish_collection_full_api_and_isolation(db, tmp_path:
             },
         )
         assert ignored_outer_source.status_code == 422
+        simulated_money = client.post(
+            f"/api/v1/bloggers/{owner.id}/schedules/{schedule_id}/collections",
+            json={
+                "idempotency_key": "simulated-money-key",
+                "metrics": {
+                    "source_type": "simulated",
+                    "actual_revenue": 10,
+                    "user_confirmed": True,
+                },
+            },
+        )
+        assert simulated_money.status_code == 422
     finally:
         clear_api()
 

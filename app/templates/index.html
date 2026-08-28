@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>黔衣有话 · 第一至三阶段演示</title>
+  <title>黔衣有话 · 第一至四阶段演示</title>
   <style>
     body { font-family: sans-serif; max-width: 1100px; margin: 20px auto; line-height: 1.5; }
     section { border: 1px solid #999; padding: 14px; margin-bottom: 16px; }
@@ -23,7 +23,7 @@
   </style>
 </head>
 <body>
-  <h1>黔衣有话 · 第一至三阶段演示</h1>
+  <h1>黔衣有话 · 第一至四阶段演示</h1>
   <p>画像采集 → DeepSeek 建库 → 本地 BGE 向量化 → 混合检索 → 决策留痕 → Agent 记忆</p>
 
   <section>
@@ -296,10 +296,60 @@
       <label>点赞 <input id="metricLikes" type="number" min="0" value="0"></label>
       <label>评论 <input id="metricComments" type="number" min="0" value="0"></label>
       <label>收藏 <input id="metricCollects" type="number" min="0" value="0"></label>
+      <label>分享 <input id="metricShares" type="number" min="0" value="0"></label>
+      <label>实际收入（可空）<input id="metricActualRevenue" type="number" min="0" step="any"></label>
+      <label>实际成本（可空）<input id="metricActualCost" type="number" min="0" step="any"></label>
+      <label><input id="metricUserConfirmed" type="checkbox"> 用户确认的真实手工数据</label>
       <button id="collectMetrics" type="button" disabled>回收原始指标</button>
       <button id="loadMetrics" type="button" disabled>查看原始指标</button>
     </div>
     <pre id="metricStatus">尚未回收指标。</pre>
+  </section>
+
+  <section id="feedbackReportSection">
+    <h2>10. 反馈闭环与经营报告（第四阶段）</h2>
+    <p><strong>证据边界：</strong>manual 是用户明确录入的数据；simulated 只用于演示。候选在确认前不会改变画像、三库或地点。报告区分 actual、estimated 与 data_insufficient。</p>
+    <h3>反馈分析、候选确认与拒绝</h3>
+    <div class="row">
+      <label>Output ID <input id="feedbackOutputId" type="number" min="1"></label>
+      <label>Metric ID <input id="feedbackMetricId" type="number" min="1"></label>
+      <label>分析指令 <input id="feedbackInstruction" type="text" value="分析本次内容表现并提出待确认候选"></label>
+      <button id="refreshFeedbackInputs" type="button" disabled>载入最新 Output/Metric</button>
+      <button id="startFeedback" type="button" disabled>分析反馈</button>
+      <button id="loadFeedbackRuns" type="button" disabled>刷新反馈历史</button>
+      <select id="feedbackRunSelect" disabled><option value="">暂无反馈运行</option></select>
+    </div>
+    <div class="row">
+      <button id="loadFeedbackEvidence" type="button" disabled>查看反馈证据</button>
+      <button id="loadFeedbackCandidates" type="button" disabled>查看待确认候选</button>
+      <button id="confirmFeedback" type="button" disabled>确认应用全部候选</button>
+      <button id="rejectFeedback" type="button" disabled>拒绝全部候选</button>
+      <button id="retryFeedback" type="button" disabled>重试失败分析</button>
+    </div>
+    <pre id="feedbackStatus">尚未分析反馈。</pre>
+    <pre id="feedbackEvidence">尚未加载反馈证据。</pre>
+    <pre id="feedbackCandidates">候选未生效。</pre>
+
+    <h3>白名单经营指标</h3>
+    <div class="row">
+      <button id="initializeIndicators" type="button" disabled>初始化默认指标</button>
+      <button id="recomputeIndicators" type="button" disabled>重算指标</button>
+      <button id="loadIndicators" type="button" disabled>查看指标定义</button>
+    </div>
+    <pre id="indicatorStatus">尚未计算指标。</pre>
+
+    <h3>经营报告、图表与历史比较</h3>
+    <div class="row">
+      <button id="generateReport" type="button" disabled>生成经营报告</button>
+      <button id="loadReports" type="button" disabled>刷新报告历史</button>
+      <select id="reportLeftSelect" disabled><option value="">左侧报告</option></select>
+      <select id="reportRightSelect" disabled><option value="">右侧报告</option></select>
+      <button id="compareReports" type="button" disabled>比较报告</button>
+    </div>
+    <pre id="reportStatus">尚未生成报告。</pre>
+    <div id="reportCharts" aria-label="确定性经营图表"></div>
+    <pre id="reportComparison">尚未比较报告。</pre>
+    <p>本页不执行真实平台发布、OAuth 或平台取数；Agent 不生成图表数值，所有图表点由后端白名单公式产生。</p>
   </section>
 
 <script>
@@ -313,6 +363,9 @@ let assessmentRows = [];
 let outputId = null;
 let outputRows = [];
 let scheduleId = null;
+let feedbackRunId = null;
+let feedbackCandidates = [];
+let reportRows = [];
 
 const $ = id => document.getElementById(id);
 const show = (id, value) => $(id).textContent =
@@ -344,6 +397,9 @@ const profileDependentControls = [
   'startAssessment', 'loadAssessmentHistory',
   'loadOutputs', 'generateScript', 'generateRoute', 'loadSchedules', 'scanReminders',
   'loadMetrics',
+  'refreshFeedbackInputs', 'startFeedback', 'loadFeedbackRuns',
+  'initializeIndicators', 'recomputeIndicators', 'loadIndicators',
+  'generateReport', 'loadReports',
 ];
 const taskDependentControls = [
   'appendTaskMessage', 'checkpointTask', 'recoverTask', 'completeTask', 'loadTask',
@@ -353,6 +409,7 @@ function setProfileControls(enabled) {
   profileDependentControls.forEach(id => $(id).disabled = !enabled);
   setAssessmentProfileControls(enabled);
   setOutputControls(enabled);
+  setFeedbackControls(enabled);
   if (!enabled) {
     taskDependentControls.forEach(id => $(id).disabled = true);
     $('taskSelect').disabled = true;
@@ -372,6 +429,31 @@ function setOutputControls(enabled) {
   ['simulatePublish', 'cancelSchedule', 'collectMetrics'].forEach(
     id => $(id).disabled = !enabled || !scheduleId,
   );
+}
+
+function setFeedbackControls(enabled) {
+  $('feedbackRunSelect').disabled = !enabled;
+  ['loadFeedbackEvidence', 'loadFeedbackCandidates', 'confirmFeedback', 'rejectFeedback', 'retryFeedback']
+    .forEach(id => $(id).disabled = !enabled || !feedbackRunId);
+  ['reportLeftSelect', 'reportRightSelect'].forEach(id => $(id).disabled = !enabled);
+  $('compareReports').disabled = !enabled || reportRows.length < 2;
+}
+
+function clearFeedbackDisplay() {
+  feedbackRunId = null;
+  feedbackCandidates = [];
+  reportRows = [];
+  $('feedbackRunSelect').replaceChildren(new Option('暂无反馈运行', ''));
+  $('reportLeftSelect').replaceChildren(new Option('左侧报告', ''));
+  $('reportRightSelect').replaceChildren(new Option('右侧报告', ''));
+  $('feedbackStatus').textContent = '尚未分析反馈。';
+  $('feedbackEvidence').textContent = '尚未加载反馈证据。';
+  $('feedbackCandidates').textContent = '候选未生效。';
+  $('indicatorStatus').textContent = '尚未计算指标。';
+  $('reportStatus').textContent = '尚未生成报告。';
+  $('reportComparison').textContent = '尚未比较报告。';
+  $('reportCharts').replaceChildren();
+  setFeedbackControls(Boolean(bloggerId));
 }
 
 function clearOutputDisplay() {
@@ -446,6 +528,7 @@ function setActiveProfile(profile) {
   if (profile) fillProfileForm(profile);
   clearAssessmentDisplay();
   clearOutputDisplay();
+  clearFeedbackDisplay();
   setProfileControls(Boolean(bloggerId));
 }
 
@@ -1277,10 +1360,13 @@ $('collectMetrics').onclick = async () => {
   const source = $('metricSource').value;
   const key = `collect-${scheduleId}-${Date.now()}`;
   const metric = {
-    idempotency_key: `metric-${scheduleId}-${Date.now()}`,
     source_type: source,
     views: Number($('metricViews').value), likes: Number($('metricLikes').value),
     comments: Number($('metricComments').value), collects: Number($('metricCollects').value),
+    shares: Number($('metricShares').value),
+    actual_revenue: optionalNumber($('metricActualRevenue').value),
+    actual_cost: optionalNumber($('metricActualCost').value),
+    user_confirmed: $('metricUserConfirmed').checked,
   };
   try {
     show('metricStatus', await api(`/api/v1/bloggers/${bloggerId}/schedules/${scheduleId}/collections`, {
@@ -1295,9 +1381,235 @@ $('loadMetrics').onclick = async () => {
   catch (error) { show('metricStatus', errorText(error)); }
 };
 
+$('metricSource').onchange = event => {
+  const manual = event.target.value === 'manual';
+  ['metricActualRevenue', 'metricActualCost', 'metricUserConfirmed'].forEach(
+    id => $(id).disabled = !manual,
+  );
+  if (!manual) {
+    $('metricActualRevenue').value = '';
+    $('metricActualCost').value = '';
+    $('metricUserConfirmed').checked = false;
+  }
+};
+
+async function refreshFeedbackInputs() {
+  if (!bloggerId) return;
+  const [outputs, metrics] = await Promise.all([
+    api(`/api/v1/bloggers/${bloggerId}/outputs?page=1&page_size=100`),
+    api(`/api/v1/bloggers/${bloggerId}/metrics`),
+  ]);
+  if (outputs.length) $('feedbackOutputId').value = outputs[0].id;
+  if (metrics.length) {
+    $('feedbackMetricId').value = metrics[0].id;
+    $('feedbackOutputId').value = metrics[0].output_id;
+  }
+  show('feedbackStatus', {
+    output_count: outputs.length,
+    metric_count: metrics.length,
+    latest_metric_source: metrics[0]?.source_type || null,
+    boundary: 'simulated 不能写入实际收入/成本',
+  });
+}
+
+async function refreshFeedbackRuns(preferredId = feedbackRunId) {
+  const rows = await api(`/api/v1/bloggers/${bloggerId}/feedback-runs?page=1&page_size=100`);
+  const select = $('feedbackRunSelect');
+  select.replaceChildren();
+  if (!rows.length) select.append(new Option('暂无反馈运行', ''));
+  rows.forEach(row => select.append(new Option(`#${row.id} ${row.status}`, row.id)));
+  const selected = rows.find(row => Number(row.id) === Number(preferredId)) || rows[0];
+  feedbackRunId = selected ? Number(selected.id) : null;
+  if (selected) {
+    select.value = String(selected.id);
+    show('feedbackStatus', selected);
+  }
+  setFeedbackControls(Boolean(bloggerId));
+  return rows;
+}
+
+$('refreshFeedbackInputs').onclick = () => refreshFeedbackInputs()
+  .catch(error => show('feedbackStatus', errorText(error)));
+
+$('startFeedback').onclick = async () => {
+  try {
+    const data = await api(`/api/v1/bloggers/${bloggerId}/feedback-runs`, {
+      method: 'POST',
+      body: JSON.stringify({
+        output_id: Number($('feedbackOutputId').value),
+        primary_metric_id: Number($('feedbackMetricId').value),
+        idempotency_key: `feedback-${bloggerId}-${Date.now()}`,
+        user_instruction: $('feedbackInstruction').value,
+      }),
+    });
+    feedbackRunId = data.id;
+    show('feedbackStatus', data);
+    await refreshFeedbackRuns(data.id);
+  } catch (error) { show('feedbackStatus', errorText(error)); }
+};
+
+$('loadFeedbackRuns').onclick = () => refreshFeedbackRuns()
+  .catch(error => show('feedbackStatus', errorText(error)));
+
+$('feedbackRunSelect').onchange = async event => {
+  feedbackRunId = Number(event.target.value) || null;
+  setFeedbackControls(Boolean(bloggerId));
+  if (!feedbackRunId) return;
+  try {
+    show('feedbackStatus', await api(`/api/v1/bloggers/${bloggerId}/feedback-runs/${feedbackRunId}`));
+  } catch (error) { show('feedbackStatus', errorText(error)); }
+};
+
+$('loadFeedbackEvidence').onclick = async () => {
+  try {
+    show('feedbackEvidence', await api(`/api/v1/bloggers/${bloggerId}/feedback-runs/${feedbackRunId}/evidence`));
+  } catch (error) { show('feedbackEvidence', errorText(error)); }
+};
+
+$('loadFeedbackCandidates').onclick = async () => {
+  try {
+    feedbackCandidates = await api(`/api/v1/bloggers/${bloggerId}/feedback-runs/${feedbackRunId}/candidates`);
+    show('feedbackCandidates', feedbackCandidates);
+  } catch (error) { show('feedbackCandidates', errorText(error)); }
+};
+
+$('confirmFeedback').onclick = async () => {
+  try {
+    if (!feedbackCandidates.length) $('loadFeedbackCandidates').click();
+    const data = await api(`/api/v1/bloggers/${bloggerId}/feedback-runs/${feedbackRunId}/confirm`, {
+      method: 'POST', body: JSON.stringify({candidate_ids: null, place_overrides: {}}),
+    });
+    show('feedbackStatus', data);
+    show('feedbackCandidates', '候选已由用户明确确认并应用；可刷新画像、资产和地点查看变化。');
+    await refreshFeedbackRuns(data.id);
+  } catch (error) { show('feedbackStatus', errorText(error)); }
+};
+
+$('rejectFeedback').onclick = async () => {
+  try {
+    const data = await api(`/api/v1/bloggers/${bloggerId}/feedback-runs/${feedbackRunId}/reject`, {
+      method: 'POST', body: JSON.stringify({candidate_ids: null, reason: '演示页用户明确拒绝'}),
+    });
+    show('feedbackStatus', data);
+    show('feedbackCandidates', '候选已拒绝；画像、资产、地点和 active 记忆均未改变。');
+    await refreshFeedbackRuns(data.id);
+  } catch (error) { show('feedbackStatus', errorText(error)); }
+};
+
+$('retryFeedback').onclick = async () => {
+  try {
+    const data = await api(`/api/v1/bloggers/${bloggerId}/feedback-runs/${feedbackRunId}/retry`, {
+      method: 'POST', body: JSON.stringify({user_instruction: $('feedbackInstruction').value}),
+    });
+    show('feedbackStatus', data);
+    await refreshFeedbackRuns(data.id);
+  } catch (error) { show('feedbackStatus', errorText(error)); }
+};
+
+$('initializeIndicators').onclick = async () => {
+  try { show('indicatorStatus', await api(`/api/v1/bloggers/${bloggerId}/indicators/defaults`, {method: 'POST'})); }
+  catch (error) { show('indicatorStatus', errorText(error)); }
+};
+
+$('recomputeIndicators').onclick = async () => {
+  try {
+    show('indicatorStatus', await api(`/api/v1/bloggers/${bloggerId}/indicators/recompute`, {
+      method: 'POST',
+      body: JSON.stringify({
+        idempotency_key: `indicator-${bloggerId}-${Date.now()}`,
+        feedback_run_id: feedbackRunId,
+      }),
+    }));
+  } catch (error) { show('indicatorStatus', errorText(error)); }
+};
+
+$('loadIndicators').onclick = async () => {
+  try { show('indicatorStatus', await api(`/api/v1/bloggers/${bloggerId}/indicators`)); }
+  catch (error) { show('indicatorStatus', errorText(error)); }
+};
+
+function renderReportCharts(charts) {
+  const root = $('reportCharts');
+  root.replaceChildren();
+  const ns = 'http://www.w3.org/2000/svg';
+  (charts || []).forEach(chart => {
+    const wrapper = document.createElement('div');
+    const heading = document.createElement('strong');
+    heading.textContent = chart.title || '确定性图表';
+    wrapper.append(heading);
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 600 180');
+    svg.setAttribute('width', '100%');
+    const points = chart.points || [];
+    const max = Math.max(1, ...points.map(point => Math.abs(Number(point.value) || 0)));
+    points.slice(0, 12).forEach((point, index) => {
+      const height = Math.abs(Number(point.value) || 0) / max * 110;
+      const rect = document.createElementNS(ns, 'rect');
+      rect.setAttribute('x', String(15 + index * 46));
+      rect.setAttribute('y', String(130 - height));
+      rect.setAttribute('width', '30');
+      rect.setAttribute('height', String(height));
+      rect.setAttribute('fill', '#555');
+      const label = document.createElementNS(ns, 'text');
+      label.setAttribute('x', String(15 + index * 46));
+      label.setAttribute('y', '150');
+      label.setAttribute('font-size', '8');
+      label.textContent = String(point.label || '').slice(0, 8);
+      svg.append(rect, label);
+    });
+    wrapper.append(svg);
+    root.append(wrapper);
+  });
+}
+
+async function refreshReports() {
+  reportRows = await api(`/api/v1/bloggers/${bloggerId}/reports?page=1&page_size=100`);
+  ['reportLeftSelect', 'reportRightSelect'].forEach((id, index) => {
+    const select = $(id);
+    select.replaceChildren(new Option(index ? '右侧报告' : '左侧报告', ''));
+    reportRows.forEach(row => select.append(new Option(`#${row.id} ${row.status}`, row.id)));
+  });
+  if (reportRows[0]) $('reportLeftSelect').value = String(reportRows[0].id);
+  if (reportRows[1]) $('reportRightSelect').value = String(reportRows[1].id);
+  show('reportStatus', reportRows);
+  setFeedbackControls(Boolean(bloggerId));
+  return reportRows;
+}
+
+$('generateReport').onclick = async () => {
+  try {
+    const data = await api(`/api/v1/bloggers/${bloggerId}/reports`, {
+      method: 'POST',
+      body: JSON.stringify({
+        idempotency_key: `report-${bloggerId}-${Date.now()}`,
+        user_instruction: '仅解释后端确定性事实，不添加数字',
+      }),
+    });
+    show('reportStatus', data);
+    renderReportCharts(data.charts);
+    await refreshReports();
+  } catch (error) { show('reportStatus', errorText(error)); }
+};
+
+$('loadReports').onclick = () => refreshReports()
+  .catch(error => show('reportStatus', errorText(error)));
+
+$('compareReports').onclick = async () => {
+  const left = $('reportLeftSelect').value;
+  const right = $('reportRightSelect').value;
+  if (!left || !right || left === right) {
+    show('reportComparison', '请选择两份不同报告。');
+    return;
+  }
+  try {
+    show('reportComparison', await api(`/api/v1/bloggers/${bloggerId}/reports/compare?left_id=${left}&right_id=${right}`));
+  } catch (error) { show('reportComparison', errorText(error)); }
+};
+
 setProfileControls(false);
 clearAssetForm();
 clearPlaceForm();
+$('metricSource').dispatchEvent(new Event('change'));
 loadBloggers().catch(error => show('profileOutput', errorText(error)));
 </script>
 </body>

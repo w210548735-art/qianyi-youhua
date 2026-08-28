@@ -4,9 +4,9 @@
 
 ## 当前阶段目标
 
-第一阶段已完成“画像采集 → 可信种子建库 → DeepSeek 生成 → 本地中文向量化 → 混合检索 → 决策留痕 → 长短期 Agent 记忆”的基础闭环。第二阶段实现三库体检、Agent 动态指标、证据约束评分、功能就绪判断及不可覆盖的历史比较。第三阶段实现脚本、分镜、收益约束路线、内容排期、提醒、模拟发布和手工/模拟原始指标回收。
+第一阶段已完成“画像采集 → 可信种子建库 → DeepSeek 生成 → 本地中文向量化 → 混合检索 → 决策留痕 → 长短期 Agent 记忆”的基础闭环。第二阶段实现三库体检、Agent 动态指标、证据约束评分、功能就绪判断及不可覆盖的历史比较。第三阶段实现脚本、分镜、收益约束路线、内容排期、提醒、模拟发布和手工/模拟原始指标回收。第四阶段实现反馈候选、人工确认/拒绝、三库进化、白名单经营指标和确定性经营报告。
 
-第三阶段不实现反馈学习、画像/资产/地点自动调整、经营报告、真实平台 OAuth、真实发布或平台取数。演示页中的发布与模拟指标始终带有明确的模拟来源标识。
+第四阶段不实现登录/多租户、真实平台 OAuth、真实发布、真实平台取数或生产部署。反馈分析不会自动写回，只有用户明确确认的候选才会原子应用；演示页中的发布与模拟指标始终带有明确的模拟来源标识。
 
 ## 技术基线
 
@@ -43,7 +43,7 @@
 - 博主采用可审计软删除。关联资产、地点、任务、决策和记忆历史继续保留，但所有默认业务入口都拒绝访问已删除博主；第一阶段不开放恢复 API。
 - 地点的 `est_cost`、`est_benefit`、`like_level`、`fits_koc`、`fits_shoot` 只有在用户明确提供或可信来源明确记载时才赋值，未知值在数据库和 API 中均保持 `null`。
 - 资产检索支持 `q`、`lib_type`、`category`、独立 `tags`、`source_type`、`source`、`min_credibility`、`max_credibility`、`page`、`page_size` 组合使用。
-- 当前 Alembic head 为 `0005_phase3_metric_contract_fix`；一期测试固定验证 `0002`，二期测试固定验证 `0003`，三期迁移测试验证空库 `base → head`、已有二期库 `0003 → head`、已升级三期库 `0004 → 0005` 的数据保留及 downgrade/upgrade 往返。
+- 当前 Alembic head 为 `0006_phase4_feedback`；一期测试固定验证 `0002`，二期固定 `0003`，三期固定 `0005`，四期验证空库 `base → 0006`、已有三期库 `0005 → 0006`、数据保留、runtime 预建兼容及 downgrade/upgrade 往返。
 
 ## 第二阶段体检 API
 
@@ -70,11 +70,23 @@
 - `POST /schedules/{schedule_id}/collections` 与 `POST /collections/{job_id}/retry`：手工/模拟原始指标回收及安全重试。
 - `GET /api/v1/bloggers/{blogger_id}/metrics`：查询原始指标，不在本阶段做反馈判断。
 
-回收接口只有一个幂等键：创建请求外层 `idempotency_key` 同时作为当前排期的 `CollectionJob` 与 `Metric` 幂等键；作用域为“`schedule_id + idempotency_key`”。不同排期可复用同一键，同排期同键只产生一个任务和一条指标。嵌套 `metrics` 只接受 `source_type`（`manual/simulated`）、四项非负计数和可选 `collected_at`；旧的嵌套幂等键或外层来源字段返回 422，不会被静默忽略。第三阶段数据库约束同样拒绝 `platform` 来源。
+回收接口只有一个幂等键：创建请求外层 `idempotency_key` 同时作为当前排期的 `CollectionJob` 与 `Metric` 幂等键；作用域为“`schedule_id + idempotency_key`”。不同排期可复用同一键，同排期同键只产生一个任务和一条指标。嵌套 `metrics` 接受 `source_type`（`manual/simulated`）、播放/点赞/评论/收藏/分享五项非负计数、可选 `collected_at`，以及仅限 `manual + user_confirmed=true` 的可空 `actual_revenue/actual_cost`。未知商业值保持 `NULL`，simulated 写实际值稳定返回 422。
 
 路线的 `est_cost`、`est_benefit`、`like_level`、`fits_koc`、`fits_shoot` 任一为 `NULL`，或商业数据没有用户明确提供/可信来源确认时，返回 `ROUTE_COMMERCIAL_DATA_INCOMPLETE` 及具体地点/字段。排序公式由后端复算并写入 `DecisionLog`，Agent 只能生成说明。
 
 第三阶段稳定错误码还包括：`ASSESSMENT_NOT_READY`、`OUTPUT_NOT_FOUND`、`OUTPUT_ALREADY_RUNNING`、`OUTPUT_INVALID_JSON`、`OUTPUT_EVIDENCE_INVALID`、`OUTPUT_SNAPSHOT_CHANGED`、`STORYBOARD_SCRIPT_REQUIRED`、`SCHEDULE_INVALID_STATE`、`PUBLISH_DUPLICATE`、`COLLECTION_INVALID_STATE`、`COLLECTION_SOURCE_INVALID`、`COLLECTION_PERSIST_FAILED`、`COLLECTION_FAILED`。跨博主访问统一 404。
+
+## 第四阶段反馈与报告 API
+
+- `POST/GET /api/v1/bloggers/{blogger_id}/feedback-runs`：按 Output + Metric 冻结快照并分析反馈、查询历史。
+- `GET /feedback-runs/{run_id}/evidence|candidates`：读取冻结证据和带版本的 pending/applied/rejected 候选。
+- `POST /feedback-runs/{run_id}/confirm|reject|retry`：明确确认、拒绝或安全重试；跨博主统一 404，快照变化返回 409。
+- `POST /indicators/defaults`、指标定义 CRUD/停用、`POST /indicators/recompute`、`GET /indicators/{id}/observations`：只执行注册表中的白名单公式，禁止自由表达式、`eval`、任意 SQL。
+- `POST/GET /reports`、`POST /reports/{id}/retry`、`GET /reports/compare` 和证据查询：生成、重试、比较不可覆盖的经营报告。
+
+反馈分析只落 `FeedbackRun`、`FeedbackEvidence` 和 pending Revision；不会改变画像、资产、地点、三库或 active 长期记忆。确认在一个事务内复核冻结快照、写 `DecisionLog`、应用所选候选和记忆版本；任一步失败整体回滚。拒绝不产生业务变更。simulated 可以形成明确标注的方向建议，但不能写入真实商业字段。
+
+报告数值和原生 SVG 图表点全部由后端从 Metric、Output、Place、OperationalIndicator 和不可变 Observation 确定性计算，Agent 只解释。money 状态严格区分 `actual`、`estimated`、`data_insufficient`；缺少用户确认收入/成本时不得声称实际赚钱或亏损。
 
 ## 测试与质量门禁
 
@@ -103,6 +115,8 @@
   `set RUN_PHASE2_REAL_DEEPSEEK=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_phase2_real_integration.py::test_phase2_real_deepseek_assessment_structure -q -rs`
 
   `set RUN_PHASE3_REAL_INTEGRATIONS=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_phase3_real_integration.py -q -rs`
+
+  `set RUN_PHASE4_REAL_INTEGRATIONS=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_phase4_real_integration.py -q -rs`
 
   未设置开关时不会加载真实模型或调用外部 API。真实 DeepSeek smoke 仅在本地密钥和网络均可用时执行，测试不会输出密钥。
 

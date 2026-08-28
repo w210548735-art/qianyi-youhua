@@ -1,8 +1,30 @@
 # 黔衣有话开发进度
 
 更新时间：2026-08-29
-当前分支：`develop/phase-3-output`
-阶段状态：`第三阶段收尾修复门禁已通过，等待再次独立验收；禁止启动第四阶段`
+当前分支：`develop/phase-4-feedback`
+阶段状态：`第四阶段实现与本地门禁已通过，待Git交付及独立验收；禁止启动第五阶段`
+
+## 2026-08-29 第四阶段实现里程碑
+
+- 新增 `FeedbackRun`/Evidence、四类 Revision、OperationalIndicator/Observation、Report/Evidence 及显式迁移 `0006_phase4_feedback`；Blogger 增加 `knowledge_focus`，Asset 增加可空 effect/effect_weight，Metric 增加 shares、可空 actual_revenue/actual_cost 和 user_confirmed。
+- 反馈确定性预分析严格按 Output/Metric/Asset/Place 显式链路和 blogger 隔离冻结快照；任务消息、checkpoint 和候选记忆不进入业务冲突 hash，画像、Output、Metric、Asset、Place 变化会触发 409。
+- FeedbackAgent 使用 Fake/DeepSeek 可注入协议，真实模型限定 `deepseek-v4-flash`；质量状态、证据和三库 target 结构最多修复一次。分析只创建 pending 候选，确认/拒绝前不修改画像、资产、地点、三库和 active 记忆。
+- 用户确认在单事务内应用画像、资产效果、地点商业字段及三库进化，保留 Revision/DecisionLog/记忆版本；失败整体回滚。simulated 不能写实际商业值，未知商业字段保持 NULL。
+- 默认 11 个经营指标只执行 Python 白名单注册函数，不接受表达式、eval、exec 或任意 SQL；Observation 和报告历史不可覆盖，分母为0、样本/商业值不足均返回 data_insufficient。
+- 报告后端确定性生成 money/traffic/product/supplier 事实和四类图表，Agent 只解释且不能新增数字；actual、estimated、data_insufficient 严格分离。API、跨博主404、失败重试、历史比较和 Jinja2/原生JS/SVG 演示均已接通。
+- 第四阶段专项：`54 passed, 2 skipped in 80.21s`；最终全量覆盖率门禁：`215 passed, 8 skipped, 39 warnings in 496.18s`，`app/services=82.35%`。
+- 最终性能复核：1000 Metric 反馈预分析 `0.092204s`，报告聚合 `0.244347s`，1000 Feedback/Report 列表 `0.026366s/0.022283s`，普通 CRUD `0.019032s`。
+- 真实集成显式联跑：本地 BGE/CUDA 512维与 DeepSeek v4-flash `2 passed in 83.95s`。Ruff app/tests/migrations 与 Mypy app 当前通过。
+- 当前 Alembic 单一 head=`0006_phase4_feedback`；迁移专项 8 passed，覆盖 base→head、0005→0006数据保留、downgrade/upgrade、runtime预建、约束和 alembic check。
+- 详细需求→实现→测试证据见 `docs/产品文档/第四阶段_开发任务清单_v1.0.md`；本地全量、覆盖率、静态、迁移、性能与真实集成门禁均已通过，待敏感扫描、提交、SSH推送、远端0/0及独立验收。
+
+## 2026-08-29 第四阶段开工
+
+- 第三阶段 `develop/phase-3-output@e83cc92` 已通过独立门禁。
+- 已从验收提交创建并通过SSH推送 `develop/phase-4-feedback`，upstream 指向同名远端；main 未修改。
+- 开工冻结基线：Alembic `0005_phase3_metric_contract_fix` 单一head；`157 passed, 6 skipped, 26 warnings in 244.55s`；services覆盖率`80.94%`；Ruff/Mypy通过；Git clean且远端0/0。
+- 本阶段严格限定为反馈候选、人工确认/拒绝、三库进化、确定性经营指标和经营报告；不实现登录、多租户、PostgreSQL、队列、真实OAuth/发布/平台取数或生产部署。
+- 详细任务与验收矩阵见 `docs/产品文档/第四阶段_开发任务清单_v1.0.md`。
 
 ## 2026-08-29 第三阶段实现里程碑
 
