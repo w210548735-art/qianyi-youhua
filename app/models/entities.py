@@ -40,8 +40,10 @@ class Blogger(Base):
     profile_state: Mapped[str] = mapped_column(String(30), nullable=False, default="complete")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
 
     assets: Mapped[list[Asset]] = relationship(back_populates="blogger", cascade="all, delete-orphan")
+    places: Mapped[list[Place]] = relationship(back_populates="blogger", cascade="all, delete-orphan")
 
 
 class ConversationSession(Base):
@@ -163,6 +165,39 @@ class AssetEmbedding(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     asset: Mapped[Asset] = relationship(back_populates="embedding")
+
+
+class Place(Base):
+    __tablename__ = "place"
+    __table_args__ = (
+        CheckConstraint("credibility >= 0 AND credibility <= 5", name="ck_place_credibility"),
+        UniqueConstraint("blogger_id", "dedupe_key", name="uq_place_blogger_dedupe"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    blogger_id: Mapped[int] = mapped_column(ForeignKey("blogger.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    category: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    location: Mapped[str | None] = mapped_column(Text)
+    specialty: Mapped[str | None] = mapped_column(Text)
+    tags_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    credibility: Mapped[int] = mapped_column(Integer, nullable=False)
+    like_level: Mapped[int | None] = mapped_column(Integer)
+    est_cost: Mapped[float | None] = mapped_column(Float)
+    est_benefit: Mapped[float | None] = mapped_column(Float)
+    fits_koc: Mapped[bool | None] = mapped_column(Boolean)
+    fits_shoot: Mapped[bool | None] = mapped_column(Boolean)
+    decision_id: Mapped[int | None] = mapped_column(ForeignKey("decision_log.id", ondelete="SET NULL"))
+    origin: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
+    manual_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    dedupe_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    blogger: Mapped[Blogger] = relationship(back_populates="places")
 
 
 class MemoryRecord(Base):

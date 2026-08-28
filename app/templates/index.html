@@ -7,10 +7,16 @@
   <style>
     body { font-family: sans-serif; max-width: 1100px; margin: 20px auto; line-height: 1.5; }
     section { border: 1px solid #999; padding: 14px; margin-bottom: 16px; }
-    input, select, button { padding: 7px; margin: 4px; }
-    input[type=text] { width: 65%; }
+    input, select, textarea, button { padding: 7px; margin: 4px; }
+    input[type=text], textarea { width: 65%; }
+    textarea { min-height: 60px; vertical-align: top; }
     pre { white-space: pre-wrap; background: #f4f4f4; padding: 10px; max-height: 360px; overflow: auto; }
+    table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+    th, td { border: 1px solid #bbb; padding: 5px; text-align: left; vertical-align: top; }
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; }
+    .form-grid label { display: flex; flex-direction: column; }
+    .wide { grid-column: 1 / -1; }
     .error { color: #b00020; }
   </style>
 </head>
@@ -19,66 +25,179 @@
   <p>画像采集 → DeepSeek 建库 → 本地 BGE 向量化 → 混合检索 → 决策留痕 → Agent 记忆</p>
 
   <section>
-    <h2>1. 多轮画像采集</h2>
-    <button id="startSession">开始画像采集</button>
-    <p id="question">点击开始。</p>
+    <h2>1. 多画像选择与采集</h2>
+    <div class="row">
+      <label for="bloggerSelect">当前画像</label>
+      <select id="bloggerSelect"><option value="">暂无画像</option></select>
+      <button id="refreshProfiles" type="button">刷新画像</button>
+      <button id="startSession" type="button">开始新画像采集</button>
+    </div>
+    <p id="question">点击开始新画像采集，或选择已有画像。</p>
     <div class="row">
       <input id="answer" type="text" placeholder="输入回答">
-      <button id="sendAnswer" disabled>发送</button>
-      <button id="confirmProfile" disabled>确认画像</button>
+      <button id="sendAnswer" type="button" disabled>发送</button>
+      <button id="confirmProfile" type="button" disabled>确认画像</button>
     </div>
     <pre id="profileOutput"></pre>
+    <h3>确认后的画像编辑</h3>
+    <div id="profileForm" class="form-grid">
+      <label>名称<input id="profileName" type="text"></label>
+      <label>平台<input id="profilePlatform" type="text"></label>
+      <label>内容类型（逗号分隔）<input id="profileContentTypes" type="text"></label>
+      <label>风格<input id="profileStyle" type="text"></label>
+      <label>粉丝量级<input id="profileFollowerBand" type="text"></label>
+      <label>变现方式（逗号分隔）<input id="profileMonetizationTypes" type="text"></label>
+      <label>路线<input id="profileRoutes" type="text"></label>
+      <label>爆款主题<input id="profileViralTopic" type="text"></label>
+      <label>更新频率<input id="profileFrequency" type="text"></label>
+    </div>
+    <div class="row">
+      <button id="editProfile" type="button" disabled>载入画像编辑</button>
+      <button id="saveProfile" type="button" disabled>保存画像修改</button>
+      <button id="deleteProfile" type="button" disabled>删除当前画像</button>
+    </div>
+    <p>当前博主 ID：<strong id="bloggerId">无</strong></p>
   </section>
 
   <section>
-    <h2>2. 一键建库</h2>
-    <p>当前博主 ID：<strong id="bloggerId">无</strong></p>
-    <button id="buildLibrary" disabled>生成三库并向量化</button>
+    <h2>2. 手工资产新增/编辑/删除与完整过滤</h2>
+    <form id="assetFilter">
+      <div class="row">
+        <input id="assetQuery" type="text" placeholder="关键词：标题、内容或标签">
+        <select id="assetLibType">
+          <option value="">全部库</option>
+          <option value="knowledge">知识库</option>
+          <option value="material">素材库</option>
+          <option value="algorithm">算法库</option>
+        </select>
+        <input id="assetCategory" type="text" placeholder="分类">
+        <input id="assetTags" type="text" placeholder="标签（逗号分隔）">
+        <input id="assetSourceType" type="text" placeholder="来源类型">
+        <input id="assetSource" type="text" placeholder="来源标题/发布者/URL">
+        <label>可信度 ≥ <input id="assetMinCredibility" type="number" min="0" max="5"></label>
+        <label>可信度 ≤ <input id="assetMaxCredibility" type="number" min="0" max="5"></label>
+        <label>页码 <input id="assetPage" type="number" min="1" value="1"></label>
+        <label>每页 <input id="assetPageSize" type="number" min="1" max="100" value="50"></label>
+        <button id="searchAssets" type="submit" disabled>过滤资产</button>
+      </div>
+    </form>
+    <pre id="searchOutput"></pre>
+    <h3>手工新增或编辑资产</h3>
+    <form id="assetForm">
+      <input id="assetId" type="hidden">
+      <div class="form-grid">
+        <label>库类型
+          <select id="assetFormLibType">
+            <option value="knowledge">知识库</option>
+            <option value="material">素材库</option>
+            <option value="algorithm">算法库</option>
+          </select>
+        </label>
+        <label>分类<input id="assetFormCategory" type="text" required></label>
+        <label>标题<input id="assetFormTitle" type="text" required></label>
+        <label>标签（逗号分隔）<input id="assetFormTags" type="text" required></label>
+        <label>来源类型<input id="assetFormSourceType" type="text" value="manual" required></label>
+        <label>可信度（0-5）<input id="assetFormCredibility" type="number" min="0" max="5" value="0" required></label>
+        <label class="wide">内容<textarea id="assetFormContent" required></textarea></label>
+        <label>来源 URL<input id="assetFormSourceUrl" type="url"></label>
+        <label>来源标题<input id="assetFormSourceTitle" type="text"></label>
+        <label>发布者<input id="assetFormPublisher" type="text"></label>
+        <label>核验日期<input id="assetFormVerifiedAt" type="text" placeholder="YYYY-MM-DD"></label>
+        <label>幂等键（新增可选）<input id="assetFormIdempotencyKey" type="text"></label>
+      </div>
+      <button id="saveAsset" type="submit" disabled>新增资产</button>
+      <button id="cancelAssetEdit" type="button">清空资产表单</button>
+    </form>
+    <table>
+      <thead><tr><th>ID</th><th>库/分类</th><th>标题</th><th>标签</th><th>来源/可信度</th><th>操作</th></tr></thead>
+      <tbody id="assetList"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>3. 地点新增/编辑/删除/过滤</h2>
+    <form id="placeFilter">
+      <div class="row">
+        <input id="placeQuery" type="text" placeholder="名称、位置或特产关键词">
+        <input id="placeFilterCategory" type="text" placeholder="分类">
+        <input id="placeFilterTags" type="text" placeholder="标签（逗号分隔）">
+        <input id="placeFilterSource" type="text" placeholder="来源类型或 URL">
+        <input id="placeFilterSourceType" type="text" placeholder="来源类型（精确）">
+        <label>可信度 ≥ <input id="placeMinCredibility" type="number" min="0" max="5"></label>
+        <label>可信度 ≤ <input id="placeMaxCredibility" type="number" min="0" max="5"></label>
+        <label>页码 <input id="placePage" type="number" min="1" value="1"></label>
+        <label>每页 <input id="placePageSize" type="number" min="1" max="100" value="50"></label>
+        <button id="searchPlaces" type="submit" disabled>过滤地点</button>
+      </div>
+    </form>
+    <pre id="placeOutput"></pre>
+    <h3>手工新增或编辑地点</h3>
+    <form id="placeForm">
+      <input id="placeId" type="hidden">
+      <div class="form-grid">
+        <label>名称<input id="placeFormName" type="text" required></label>
+        <label>分类<input id="placeFormCategory" type="text" value="地点" required></label>
+        <label>位置<input id="placeFormLocation" type="text"></label>
+        <label>特色<input id="placeFormSpecialty" type="text"></label>
+        <label>标签（逗号分隔）<input id="placeFormTags" type="text"></label>
+        <label>来源<input id="placeFormSource" type="text" value="manual" required></label>
+        <label>来源 URL<input id="placeFormSourceUrl" type="url"></label>
+        <label>可信度（0-5）<input id="placeFormCredibility" type="number" min="0" max="5" value="0" required></label>
+        <label>喜爱程度（可空）<input id="placeFormLikeLevel" type="number" min="0" max="5"></label>
+        <label>预计成本（可空）<input id="placeFormEstCost" type="number" min="0" step="any"></label>
+        <label>预计收益（可空）<input id="placeFormEstBenefit" type="number" min="0" step="any"></label>
+        <label>适合 KOC
+          <select id="placeFormFitsKoc"><option value="">未设置</option><option value="true">是</option><option value="false">否</option></select>
+        </label>
+        <label>适合拍摄
+          <select id="placeFormFitsShoot"><option value="">未设置</option><option value="true">是</option><option value="false">否</option></select>
+        </label>
+      </div>
+      <button id="savePlace" type="submit" disabled>新增地点</button>
+      <button id="cancelPlaceEdit" type="button">清空地点表单</button>
+    </form>
+    <table>
+      <thead><tr><th>ID</th><th>名称/分类</th><th>位置/特色</th><th>标签</th><th>来源/可信度</th><th>操作</th></tr></thead>
+      <tbody id="placeList"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>4. 一键建库</h2>
+    <button id="buildLibrary" type="button" disabled>生成三库并向量化</button>
     <pre id="buildOutput"></pre>
   </section>
 
   <section>
-    <h2>3. 混合检索</h2>
-    <div class="row">
-      <input id="query" type="text" placeholder="例如：贵州酸味美食、苗族手工艺">
-      <select id="libType">
-        <option value="">全部库</option>
-        <option value="knowledge">知识库</option>
-        <option value="material">素材库</option>
-        <option value="algorithm">算法库</option>
-      </select>
-      <button id="searchAssets" disabled>检索</button>
-    </div>
-    <pre id="searchOutput"></pre>
-  </section>
-
-  <section>
-    <h2>4. 决策记录</h2>
-    <button id="loadDecisions" disabled>查看决策</button>
+    <h2>5. 决策记录与决策错误查看</h2>
+    <button id="loadDecisions" type="button" disabled>查看全部决策</button>
+    <button id="loadDecisionErrors" type="button" disabled>查看决策错误</button>
     <pre id="decisionOutput"></pre>
   </section>
 
   <section>
-    <h2>5. 短期任务记忆与恢复</h2>
+    <h2>6. 短期任务记忆与恢复</h2>
     <div class="row">
-      <button id="createTask" disabled>创建演示任务</button>
+      <button id="createTask" type="button" disabled>创建演示任务</button>
+      <button id="loadTasks" type="button" disabled>查看未完成任务</button>
+      <select id="taskSelect" disabled><option value="">暂无任务</option></select>
       <input id="taskMessage" type="text" value="准备制作一条酸汤鱼口播内容">
-      <button id="appendTaskMessage" disabled>追加日志</button>
-      <button id="checkpointTask" disabled>保存检查点</button>
-      <button id="recoverTask" disabled>恢复任务</button>
-      <button id="completeTask" disabled>完成任务</button>
-      <button id="loadTask" disabled>查看任务日志</button>
+      <button id="appendTaskMessage" type="button" disabled>追加日志</button>
+      <button id="checkpointTask" type="button" disabled>保存检查点</button>
+      <button id="recoverTask" type="button" disabled>恢复任务</button>
+      <button id="completeTask" type="button" disabled>完成任务</button>
+      <button id="loadTask" type="button" disabled>查看任务日志</button>
     </div>
     <p>当前任务 ID：<strong id="taskId">无</strong></p>
     <pre id="taskOutput"></pre>
   </section>
 
   <section>
-    <h2>6. 长期记忆召回与 Agent 上下文</h2>
+    <h2>7. 长期记忆召回与 Agent 上下文</h2>
     <div class="row">
       <input id="memoryQuery" type="text" value="我想做贵州酸汤鱼内容">
-      <button id="recallMemories" disabled>组装上下文并召回</button>
-      <button id="listMemories" disabled>查看长期记忆</button>
+      <button id="recallMemories" type="button" disabled>组装上下文并召回</button>
+      <button id="listMemories" type="button" disabled>查看长期记忆</button>
     </div>
     <pre id="memoryOutput"></pre>
   </section>
@@ -87,159 +206,483 @@
 let sessionId = null;
 let bloggerId = null;
 let taskId = null;
-const show = (id, value) => document.getElementById(id).textContent =
+let editingAssetId = null;
+let editingPlaceId = null;
+
+const $ = id => document.getElementById(id);
+const show = (id, value) => $(id).textContent =
   typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+const csv = value => String(value || '').replaceAll('，', ',').replaceAll('、', ',')
+  .split(',').map(item => item.trim()).filter(Boolean);
+const optionalNumber = value => value === '' ? null : Number(value);
+const optionalBoolean = value => value === '' ? null : value === 'true';
+const errorText = error => `错误：${error.message}`;
 
 async function api(url, options = {}) {
-  const response = await fetch(url, {headers: {'Content-Type': 'application/json'}, ...options});
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || JSON.stringify(data));
+  const response = await fetch(url, {
+    headers: {'Content-Type': 'application/json', ...(options.headers || {})},
+    ...options,
+  });
+  let data;
+  try { data = await response.json(); } catch (_) { data = await response.text(); }
+  if (!response.ok) {
+    const detail = data && typeof data === 'object' && data.detail ? data.detail : data;
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+  }
   return data;
 }
 
-document.getElementById('startSession').onclick = async () => {
-  const data = await api('/api/v1/profile-sessions', {method: 'POST'});
-  sessionId = data.session_id;
-  show('question', data.question);
-  document.getElementById('sendAnswer').disabled = false;
+const profileDependentControls = [
+  'editProfile', 'saveProfile', 'deleteProfile', 'buildLibrary', 'searchAssets',
+  'loadDecisions', 'loadDecisionErrors', 'saveAsset', 'searchPlaces', 'savePlace',
+  'createTask', 'loadTasks', 'recallMemories', 'listMemories',
+];
+const taskDependentControls = [
+  'appendTaskMessage', 'checkpointTask', 'recoverTask', 'completeTask', 'loadTask',
+];
+
+function setProfileControls(enabled) {
+  profileDependentControls.forEach(id => $(id).disabled = !enabled);
+  if (!enabled) {
+    taskDependentControls.forEach(id => $(id).disabled = true);
+    $('taskSelect').disabled = true;
+  }
+}
+
+function setTaskControls(enabled) {
+  taskDependentControls.forEach(id => $(id).disabled = !enabled);
+  $('taskSelect').disabled = !bloggerId;
+}
+
+function fillProfileForm(profile) {
+  $('profileName').value = profile.name || '';
+  $('profilePlatform').value = profile.platform || '';
+  $('profileContentTypes').value = (profile.content_types || []).join(', ');
+  $('profileStyle').value = profile.style || '';
+  $('profileFollowerBand').value = profile.follower_band || '';
+  $('profileMonetizationTypes').value = (profile.monetization_types || []).join(', ');
+  $('profileRoutes').value = profile.routes || '';
+  $('profileViralTopic').value = profile.viral_topic || '';
+  $('profileFrequency').value = profile.frequency || '';
+}
+
+function setActiveProfile(profile) {
+  bloggerId = profile && profile.id ? Number(profile.id) : null;
+  $('bloggerId').textContent = bloggerId ? String(bloggerId) : '无';
+  if (profile) fillProfileForm(profile);
+  setProfileControls(Boolean(bloggerId));
+}
+
+async function loadBloggers(preferredId = bloggerId) {
+  const profiles = await api('/api/v1/bloggers');
+  const select = $('bloggerSelect');
+  select.replaceChildren();
+  if (!profiles.length) {
+    select.append(new Option('暂无画像', ''));
+    setActiveProfile(null);
+    return profiles;
+  }
+  profiles.forEach(profile => select.append(new Option(`${profile.name} (#${profile.id})`, profile.id)));
+  const selected = profiles.find(profile => Number(profile.id) === Number(preferredId)) || profiles[0];
+  select.value = String(selected.id);
+  setActiveProfile(selected);
+  await refreshAssets();
+  await refreshPlaces();
+  return profiles;
+}
+
+$('refreshProfiles').onclick = async () => {
+  try { await loadBloggers(); show('profileOutput', '画像列表已刷新。'); }
+  catch (error) { show('profileOutput', errorText(error)); }
 };
 
-document.getElementById('sendAnswer').onclick = async () => {
+$('bloggerSelect').onchange = async event => {
+  if (!event.target.value) { setActiveProfile(null); return; }
   try {
-    const input = document.getElementById('answer');
+    const profile = await api(`/api/v1/bloggers/${event.target.value}`);
+    setActiveProfile(profile);
+    await refreshAssets();
+    await refreshPlaces();
+    show('profileOutput', profile);
+  } catch (error) { show('profileOutput', errorText(error)); }
+};
+
+$('startSession').onclick = async () => {
+  try {
+    const data = await api('/api/v1/profile-sessions', {method: 'POST'});
+    sessionId = data.session_id;
+    show('question', data.question);
+    show('profileOutput', data.collected_profile);
+    $('answer').value = '';
+    $('sendAnswer').disabled = false;
+    $('confirmProfile').disabled = true;
+  } catch (error) { show('profileOutput', errorText(error)); }
+};
+
+$('sendAnswer').onclick = async () => {
+  try {
+    const input = $('answer');
     const data = await api(`/api/v1/profile-sessions/${sessionId}/messages`, {
-      method: 'POST', body: JSON.stringify({message: input.value})
+      method: 'POST', body: JSON.stringify({message: input.value}),
     });
     input.value = '';
     show('profileOutput', data.collected_profile);
+    fillProfileForm(data.collected_profile);
     if (data.status === 'confirming') {
       show('question', '信息采集完成，请检查并确认画像。');
-      document.getElementById('sendAnswer').disabled = true;
-      document.getElementById('confirmProfile').disabled = false;
+      $('sendAnswer').disabled = true;
+      $('confirmProfile').disabled = false;
     } else show('question', data.question);
-  } catch (error) { show('profileOutput', `错误：${error.message}`); }
+  } catch (error) { show('profileOutput', errorText(error)); }
 };
 
-document.getElementById('confirmProfile').onclick = async () => {
+$('confirmProfile').onclick = async () => {
   try {
     const data = await api(`/api/v1/profile-sessions/${sessionId}/confirm`, {method: 'POST'});
-    bloggerId = data.id;
+    setActiveProfile(data);
     show('profileOutput', data);
-    show('bloggerId', String(bloggerId));
-    ['buildLibrary', 'searchAssets', 'loadDecisions', 'createTask', 'recallMemories', 'listMemories']
-      .forEach(id => document.getElementById(id).disabled = false);
-  } catch (error) { show('profileOutput', `错误：${error.message}`); }
+    $('confirmProfile').disabled = true;
+    await loadBloggers(data.id);
+  } catch (error) { show('profileOutput', errorText(error)); }
 };
 
-document.getElementById('buildLibrary').onclick = async () => {
+$('editProfile').onclick = async () => {
+  if (!bloggerId) return;
+  try {
+    const data = await api(`/api/v1/bloggers/${bloggerId}`);
+    fillProfileForm(data);
+    show('profileOutput', '已载入当前画像，可修改后保存。');
+  } catch (error) { show('profileOutput', errorText(error)); }
+};
+
+$('saveProfile').onclick = async () => {
+  if (!bloggerId) return;
+  const payload = {
+    name: $('profileName').value.trim(),
+    platform: $('profilePlatform').value.trim(),
+    content_types: csv($('profileContentTypes').value),
+    style: $('profileStyle').value.trim(),
+    follower_band: $('profileFollowerBand').value.trim(),
+    monetization_types: csv($('profileMonetizationTypes').value),
+    routes: $('profileRoutes').value.trim() || null,
+    viral_topic: $('profileViralTopic').value.trim() || null,
+    frequency: $('profileFrequency').value.trim() || null,
+  };
+  try {
+    const data = await api(`/api/v1/bloggers/${bloggerId}`, {
+      method: 'PUT', body: JSON.stringify(payload),
+    });
+    setActiveProfile(data);
+    show('profileOutput', data);
+    await loadBloggers(bloggerId);
+  } catch (error) { show('profileOutput', errorText(error)); }
+};
+
+$('deleteProfile').onclick = async () => {
+  if (!bloggerId || !window.confirm('确定删除当前画像吗？')) return;
+  try {
+    const data = await api(`/api/v1/bloggers/${bloggerId}`, {method: 'DELETE'});
+    show('profileOutput', data);
+    bloggerId = null;
+    await loadBloggers();
+  } catch (error) { show('profileOutput', errorText(error)); }
+};
+
+function assetPayload() {
+  const payload = {
+    lib_type: $('assetFormLibType').value,
+    category: $('assetFormCategory').value.trim(),
+    title: $('assetFormTitle').value.trim(),
+    content: $('assetFormContent').value.trim(),
+    tags: csv($('assetFormTags').value),
+    source_type: $('assetFormSourceType').value.trim(),
+    source_url: $('assetFormSourceUrl').value.trim() || null,
+    source_title: $('assetFormSourceTitle').value.trim() || null,
+    publisher: $('assetFormPublisher').value.trim() || null,
+    verified_at: $('assetFormVerifiedAt').value.trim() || null,
+    credibility: Number($('assetFormCredibility').value),
+  };
+  if (!editingAssetId && $('assetFormIdempotencyKey').value.trim()) {
+    payload.idempotency_key = $('assetFormIdempotencyKey').value.trim();
+  }
+  return payload;
+}
+
+function clearAssetForm() {
+  editingAssetId = null;
+  $('assetId').value = '';
+  $('assetForm').reset();
+  $('assetFormLibType').value = 'knowledge';
+  $('assetFormSourceType').value = 'manual';
+  $('assetFormCredibility').value = '0';
+  $('saveAsset').textContent = '新增资产';
+}
+
+function fillAssetForm(asset) {
+  editingAssetId = asset.id;
+  $('assetId').value = asset.id;
+  $('assetFormLibType').value = asset.lib_type || 'knowledge';
+  $('assetFormCategory').value = asset.category || '';
+  $('assetFormTitle').value = asset.title || '';
+  $('assetFormContent').value = asset.content || '';
+  $('assetFormTags').value = (asset.tags || []).join(', ');
+  $('assetFormSourceType').value = asset.source_type || 'manual';
+  $('assetFormCredibility').value = String(asset.credibility ?? 0);
+  const source = (asset.sources || [])[0] || {};
+  $('assetFormSourceUrl').value = source.url || '';
+  $('assetFormSourceTitle').value = source.title || '';
+  $('assetFormPublisher').value = source.publisher || '';
+  $('assetFormVerifiedAt').value = '';
+  $('assetFormIdempotencyKey').value = '';
+  $('saveAsset').textContent = '保存资产修改';
+}
+
+function renderAssets(assets) {
+  const body = $('assetList');
+  body.replaceChildren();
+  assets.forEach(asset => {
+    const row = document.createElement('tr');
+    [asset.id, `${asset.lib_type} / ${asset.category}`, asset.title,
+      (asset.tags || []).join(', '), `${asset.source_type} / ${asset.credibility}`]
+      .forEach(value => { const cell = document.createElement('td'); cell.textContent = value; row.append(cell); });
+    const actions = document.createElement('td');
+    const edit = document.createElement('button'); edit.type = 'button'; edit.textContent = '编辑';
+    edit.onclick = () => fillAssetForm(asset);
+    const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '删除';
+    remove.onclick = async () => {
+      if (!window.confirm(`确定删除资产 ${asset.id} 吗？`)) return;
+      try {
+        const result = await api(`/api/v1/bloggers/${bloggerId}/assets/${asset.id}`, {method: 'DELETE'});
+        show('searchOutput', result);
+        await refreshAssets();
+      } catch (error) { show('searchOutput', errorText(error)); }
+    };
+    actions.append(edit, remove); row.append(actions); body.append(row);
+  });
+}
+
+async function refreshAssets() {
+  if (!bloggerId) return;
+  const params = new URLSearchParams();
+  const fields = {
+    q: $('assetQuery').value.trim(), lib_type: $('assetLibType').value,
+    category: $('assetCategory').value.trim(), source_type: $('assetSourceType').value.trim(),
+    source: $('assetSource').value.trim(), min_credibility: $('assetMinCredibility').value,
+    max_credibility: $('assetMaxCredibility').value, page: $('assetPage').value || '1',
+    page_size: $('assetPageSize').value || '50',
+  };
+  Object.entries(fields).forEach(([key, value]) => { if (value !== '') params.set(key, value); });
+  csv($('assetTags').value).forEach(tag => params.append('tags', tag));
+  try {
+    const data = await api(`/api/v1/bloggers/${bloggerId}/assets?${params}`);
+    renderAssets(data); show('searchOutput', data);
+  } catch (error) { show('searchOutput', errorText(error)); }
+}
+
+$('assetFilter').onsubmit = async event => { event.preventDefault(); await refreshAssets(); };
+$('assetForm').onsubmit = async event => {
+  event.preventDefault();
+  if (!bloggerId) return;
+  const isEdit = Boolean(editingAssetId);
+  const url = isEdit ? `/api/v1/bloggers/${bloggerId}/assets/${editingAssetId}` : `/api/v1/bloggers/${bloggerId}/assets`;
+  try {
+    const data = await api(url, {method: isEdit ? 'PUT' : 'POST', body: JSON.stringify(assetPayload())});
+    show('searchOutput', data); clearAssetForm(); await refreshAssets();
+  } catch (error) { show('searchOutput', errorText(error)); }
+};
+$('cancelAssetEdit').onclick = clearAssetForm;
+
+function placePayload() {
+  return {
+    name: $('placeFormName').value.trim(), category: $('placeFormCategory').value.trim(),
+    location: $('placeFormLocation').value.trim() || null, specialty: $('placeFormSpecialty').value.trim() || null,
+    tags: csv($('placeFormTags').value), source: $('placeFormSource').value.trim(),
+    source_url: $('placeFormSourceUrl').value.trim() || null,
+    credibility: Number($('placeFormCredibility').value), like_level: optionalNumber($('placeFormLikeLevel').value),
+    est_cost: optionalNumber($('placeFormEstCost').value), est_benefit: optionalNumber($('placeFormEstBenefit').value),
+    fits_koc: optionalBoolean($('placeFormFitsKoc').value), fits_shoot: optionalBoolean($('placeFormFitsShoot').value),
+  };
+}
+
+function clearPlaceForm() {
+  editingPlaceId = null;
+  $('placeId').value = '';
+  $('placeForm').reset();
+  $('placeFormCategory').value = '地点';
+  $('placeFormSource').value = 'manual';
+  $('placeFormCredibility').value = '0';
+  $('savePlace').textContent = '新增地点';
+}
+
+function fillPlaceForm(place) {
+  editingPlaceId = place.id;
+  $('placeId').value = place.id;
+  $('placeFormName').value = place.name || '';
+  $('placeFormCategory').value = place.category || '地点';
+  $('placeFormLocation').value = place.location || '';
+  $('placeFormSpecialty').value = place.specialty || '';
+  $('placeFormTags').value = (place.tags || []).join(', ');
+  $('placeFormSource').value = place.source || place.source_type || 'manual';
+  $('placeFormSourceUrl').value = place.source_url || '';
+  $('placeFormCredibility').value = String(place.credibility ?? 0);
+  $('placeFormLikeLevel').value = place.like_level ?? '';
+  $('placeFormEstCost').value = place.est_cost ?? '';
+  $('placeFormEstBenefit').value = place.est_benefit ?? '';
+  $('placeFormFitsKoc').value = place.fits_koc === null || place.fits_koc === undefined ? '' : String(place.fits_koc);
+  $('placeFormFitsShoot').value = place.fits_shoot === null || place.fits_shoot === undefined ? '' : String(place.fits_shoot);
+  $('savePlace').textContent = '保存地点修改';
+}
+
+function renderPlaces(places) {
+  const body = $('placeList'); body.replaceChildren();
+  places.forEach(place => {
+    const row = document.createElement('tr');
+    [place.id, `${place.name} / ${place.category}`, `${place.location || ''} / ${place.specialty || ''}`,
+      (place.tags || []).join(', '), `${place.source || place.source_type} / ${place.credibility}`]
+      .forEach(value => { const cell = document.createElement('td'); cell.textContent = value; row.append(cell); });
+    const actions = document.createElement('td');
+    const edit = document.createElement('button'); edit.type = 'button'; edit.textContent = '编辑';
+    edit.onclick = () => fillPlaceForm(place);
+    const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '删除';
+    remove.onclick = async () => {
+      if (!window.confirm(`确定删除地点 ${place.id} 吗？`)) return;
+      try {
+        const result = await api(`/api/v1/bloggers/${bloggerId}/places/${place.id}`, {method: 'DELETE'});
+        show('placeOutput', result); await refreshPlaces();
+      } catch (error) { show('placeOutput', errorText(error)); }
+    };
+    actions.append(edit, remove); row.append(actions); body.append(row);
+  });
+}
+
+async function refreshPlaces() {
+  if (!bloggerId) return;
+  const params = new URLSearchParams();
+  const fields = {
+    q: $('placeQuery').value.trim(), category: $('placeFilterCategory').value.trim(),
+    source: $('placeFilterSource').value.trim(), source_type: $('placeFilterSourceType').value.trim(),
+    min_credibility: $('placeMinCredibility').value, max_credibility: $('placeMaxCredibility').value,
+    page: $('placePage').value || '1', page_size: $('placePageSize').value || '50',
+  };
+  Object.entries(fields).forEach(([key, value]) => { if (value !== '') params.set(key, value); });
+  csv($('placeFilterTags').value).forEach(tag => params.append('tags', tag));
+  try {
+    const data = await api(`/api/v1/bloggers/${bloggerId}/places?${params}`);
+    renderPlaces(data); show('placeOutput', data);
+  } catch (error) { show('placeOutput', errorText(error)); }
+}
+
+$('placeFilter').onsubmit = async event => { event.preventDefault(); await refreshPlaces(); };
+$('placeForm').onsubmit = async event => {
+  event.preventDefault();
+  if (!bloggerId) return;
+  const isEdit = Boolean(editingPlaceId);
+  const url = isEdit ? `/api/v1/bloggers/${bloggerId}/places/${editingPlaceId}` : `/api/v1/bloggers/${bloggerId}/places`;
+  try {
+    const data = await api(url, {method: isEdit ? 'PUT' : 'POST', body: JSON.stringify(placePayload())});
+    show('placeOutput', data); clearPlaceForm(); await refreshPlaces();
+  } catch (error) { show('placeOutput', errorText(error)); }
+};
+$('cancelPlaceEdit').onclick = clearPlaceForm;
+
+$('buildLibrary').onclick = async () => {
   show('buildOutput', '正在调用 DeepSeek 并执行本地向量化，请等待……');
   try {
     const data = await api(`/api/v1/bloggers/${bloggerId}/build-runs`, {
-      method: 'POST', body: JSON.stringify({idempotency_key: `${bloggerId}-${Date.now()}`})
+      method: 'POST', body: JSON.stringify({idempotency_key: `${bloggerId}-${Date.now()}`}),
     });
     show('buildOutput', data);
-  } catch (error) { show('buildOutput', `错误：${error.message}`); }
+  } catch (error) { show('buildOutput', errorText(error)); }
 };
 
-document.getElementById('searchAssets').onclick = async () => {
+async function loadDecisions(errorsOnly = false) {
   try {
-    const query = encodeURIComponent(document.getElementById('query').value);
-    const lib = encodeURIComponent(document.getElementById('libType').value);
-    const data = await api(`/api/v1/bloggers/${bloggerId}/assets?q=${query}&lib_type=${lib}`);
-    show('searchOutput', data);
-  } catch (error) { show('searchOutput', `错误：${error.message}`); }
-};
-
-document.getElementById('loadDecisions').onclick = async () => {
-  try { show('decisionOutput', await api(`/api/v1/bloggers/${bloggerId}/decisions`)); }
-  catch (error) { show('decisionOutput', `错误：${error.message}`); }
-};
+    const data = await api(`/api/v1/bloggers/${bloggerId}/decisions`);
+    const result = errorsOnly ? data.filter(item => {
+      const text = JSON.stringify(item).toLowerCase();
+      return text.includes('error') || text.includes('failure') || text.includes('failed');
+    }) : data;
+    show('decisionOutput', result);
+  } catch (error) { show('decisionOutput', errorText(error)); }
+}
+$('loadDecisions').onclick = () => loadDecisions(false);
+$('loadDecisionErrors').onclick = () => loadDecisions(true);
 
 const taskUrl = suffix => `/api/v1/memory/bloggers/${bloggerId}/tasks/${taskId}${suffix}`;
 
-document.getElementById('createTask').onclick = async () => {
+function setTaskId(id) {
+  taskId = id || null;
+  $('taskId').textContent = taskId || '无';
+  setTaskControls(Boolean(taskId));
+}
+
+async function loadTasks() {
+  try {
+    const tasks = await api(`/api/v1/memory/bloggers/${bloggerId}/tasks`);
+    const select = $('taskSelect'); select.replaceChildren();
+    if (!tasks.length) select.append(new Option('暂无未完成任务', ''));
+    tasks.forEach(task => select.append(new Option(`${task.title} (${task.task_id})`, task.task_id)));
+    select.value = taskId || '';
+    show('taskOutput', tasks);
+  } catch (error) { show('taskOutput', errorText(error)); }
+}
+
+$('createTask').onclick = async () => {
   try {
     const data = await api(`/api/v1/memory/bloggers/${bloggerId}/tasks`, {
-      method: 'POST',
-      body: JSON.stringify({
-        task_type: 'content_demo',
-        title: '第一阶段记忆演示',
-        initial_context: '已创建内容演示任务'
-      })
+      method: 'POST', body: JSON.stringify({task_type: 'content_demo', title: '第一阶段记忆演示', initial_context: '已创建内容演示任务'}),
     });
-    taskId = data.task_id;
-    show('taskId', taskId);
-    show('taskOutput', data);
-    ['appendTaskMessage', 'checkpointTask', 'recoverTask', 'completeTask', 'loadTask']
-      .forEach(id => document.getElementById(id).disabled = false);
-  } catch (error) { show('taskOutput', `错误：${error.message}`); }
+    setTaskId(data.task_id); show('taskOutput', data); await loadTasks();
+  } catch (error) { show('taskOutput', errorText(error)); }
 };
-
-document.getElementById('appendTaskMessage').onclick = async () => {
+$('loadTasks').onclick = loadTasks;
+$('taskSelect').onchange = event => setTaskId(event.target.value);
+$('appendTaskMessage').onclick = async () => {
   try {
-    const content = document.getElementById('taskMessage').value;
-    const data = await api(taskUrl('/messages'), {
-      method: 'POST', body: JSON.stringify({role: 'user', content})
-    });
+    const data = await api(taskUrl('/messages'), {method: 'POST', body: JSON.stringify({role: 'user', content: $('taskMessage').value})});
     show('taskOutput', data);
-  } catch (error) { show('taskOutput', `错误：${error.message}`); }
+  } catch (error) { show('taskOutput', errorText(error)); }
 };
-
-document.getElementById('checkpointTask').onclick = async () => {
+$('checkpointTask').onclick = async () => {
   try {
-    const data = await api(taskUrl('/checkpoints'), {
-      method: 'POST',
-      body: JSON.stringify({state: {step: 'demo'}, context_snapshot: '演示日志已记录，可从此处恢复'})
-    });
+    const data = await api(taskUrl('/checkpoints'), {method: 'POST', body: JSON.stringify({state: {step: 'demo'}, context_snapshot: '演示日志已记录，可从此处恢复'})});
     show('taskOutput', data);
-  } catch (error) { show('taskOutput', `错误：${error.message}`); }
+  } catch (error) { show('taskOutput', errorText(error)); }
 };
-
-document.getElementById('recoverTask').onclick = async () => {
+$('recoverTask').onclick = async () => {
   try { show('taskOutput', await api(taskUrl('/recover'), {method: 'POST'})); }
-  catch (error) { show('taskOutput', `错误：${error.message}`); }
+  catch (error) { show('taskOutput', errorText(error)); }
 };
-
-document.getElementById('completeTask').onclick = async () => {
+$('completeTask').onclick = async () => {
   try {
     const data = await api(taskUrl('/complete'), {
-      method: 'POST',
-      body: JSON.stringify({
-        final_summary: {result: '第一阶段演示完成'},
-        memory_candidates: [{
-          memory_type: 'user_preference', title: '演示偏好候选',
-          content: '本次任务提到酸汤鱼', confidence: 0.5
-        }]
-      })
+      method: 'POST', body: JSON.stringify({final_summary: {result: '第一阶段演示完成'}, memory_candidates: [{memory_type: 'user_preference', title: '演示偏好候选', content: '本次任务提到酸汤鱼', confidence: 0.5}]}),
     });
-    show('taskOutput', data);
-  } catch (error) { show('taskOutput', `错误：${error.message}`); }
+    show('taskOutput', data); setTaskId(null); await loadTasks();
+  } catch (error) { show('taskOutput', errorText(error)); }
 };
-
-document.getElementById('loadTask').onclick = async () => {
+$('loadTask').onclick = async () => {
   try { show('taskOutput', await api(taskUrl(''))); }
-  catch (error) { show('taskOutput', `错误：${error.message}`); }
+  catch (error) { show('taskOutput', errorText(error)); }
 };
 
-document.getElementById('recallMemories').onclick = async () => {
+$('recallMemories').onclick = async () => {
   try {
     const data = await api(`/api/v1/memory/bloggers/${bloggerId}/context`, {
-      method: 'POST',
-      body: JSON.stringify({
-        user_input: document.getElementById('memoryQuery').value,
-        task_id: taskId,
-        top_k: 5
-      })
+      method: 'POST', body: JSON.stringify({user_input: $('memoryQuery').value, task_id: taskId, top_k: 5}),
     });
     show('memoryOutput', data);
-  } catch (error) { show('memoryOutput', `错误：${error.message}`); }
+  } catch (error) { show('memoryOutput', errorText(error)); }
+};
+$('listMemories').onclick = async () => {
+  try { show('memoryOutput', await api(`/api/v1/memory/bloggers/${bloggerId}/memories?status=all`)); }
+  catch (error) { show('memoryOutput', errorText(error)); }
 };
 
-document.getElementById('listMemories').onclick = async () => {
-  try {
-    show('memoryOutput', await api(`/api/v1/memory/bloggers/${bloggerId}/memories?status=all`));
-  } catch (error) { show('memoryOutput', `错误：${error.message}`); }
-};
+setProfileControls(false);
+clearAssetForm();
+clearPlaceForm();
+loadBloggers().catch(error => show('profileOutput', errorText(error)));
 </script>
 </body>
 </html>

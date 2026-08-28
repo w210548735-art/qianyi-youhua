@@ -51,6 +51,26 @@ def test_asset_api_update_delete_search_and_pagination(db):
         assert first_page.status_code == second_page.status_code == 200
         assert len(first_page.json()) == len(second_page.json()) == 5
         assert not {item["id"] for item in first_page.json()}.intersection(item["id"] for item in second_page.json())
+        filtered = client.get(
+            f"/api/v1/bloggers/{blogger.id}/assets",
+            params={
+                "q": "酸汤鱼",
+                "lib_type": "knowledge",
+                "category": "美食",
+                "tags": "酸汤鱼",
+                "source_type": "official",
+                "source": "民政厅",
+                "min_credibility": 5,
+                "max_credibility": 5,
+            },
+        )
+        assert filtered.status_code == 200
+        assert [item["title"] for item in filtered.json()] == ["凯里酸汤鱼"]
+        invalid_range = client.get(
+            f"/api/v1/bloggers/{blogger.id}/assets",
+            params={"min_credibility": 5, "max_credibility": 2},
+        )
+        assert invalid_range.status_code == 422
 
         asset_id = first_page.json()[2]["id"]
         updated = client.put(
@@ -69,5 +89,60 @@ def test_asset_api_update_delete_search_and_pagination(db):
         )
         assert results.status_code == 200
         assert asset_id not in {item["id"] for item in results.json()}
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_scoped_manual_asset_complete_crud_validation_and_isolation(db):
+    first = create_blogger(db)
+    second = create_blogger(db)
+
+    def override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_db
+    client = TestClient(app)
+    payload = {
+        "lib_type": "knowledge",
+        "category": "非遗",
+        "title": "手工苗绣知识",
+        "content": "用户录入的苗绣资料。",
+        "tags": ["苗绣", "非遗"],
+        "source_type": "official",
+        "source_url": "https://example.com/manual-miao",
+        "source_title": "苗绣官方资料",
+        "publisher": "测试文旅部门",
+        "verified_at": "2026-08-28",
+        "credibility": 5,
+        "idempotency_key": "manual-asset-api-1",
+    }
+    try:
+        created = client.post(f"/api/v1/bloggers/{first.id}/assets", json=payload)
+        repeated = client.post(f"/api/v1/bloggers/{first.id}/assets", json=payload)
+        assert created.status_code == repeated.status_code == 200
+        asset_id = created.json()["id"]
+        assert repeated.json()["id"] == asset_id
+        assert created.json()["origin"] == "manual"
+        assert created.json()["manual_locked"] is True
+        assert client.get(f"/api/v1/bloggers/{first.id}/assets/{asset_id}").status_code == 200
+        assert client.get(f"/api/v1/bloggers/{second.id}/assets/{asset_id}").status_code == 404
+
+        updated = client.put(
+            f"/api/v1/bloggers/{first.id}/assets/{asset_id}",
+            json={"title": "修正后的苗绣知识", "tags": ["苗绣", "人工修正"]},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["title"] == "修正后的苗绣知识"
+        deleted = client.delete(f"/api/v1/bloggers/{first.id}/assets/{asset_id}")
+        repeated_delete = client.delete(f"/api/v1/bloggers/{first.id}/assets/{asset_id}")
+        assert deleted.status_code == repeated_delete.status_code == 200
+        assert repeated_delete.json()["deleted_at"] == deleted.json()["deleted_at"]
+        assert client.get(f"/api/v1/bloggers/{first.id}/assets/{asset_id}").status_code == 404
+        assert client.post(f"/api/v1/bloggers/{first.id}/assets", json=payload).status_code == 409
+
+        invalid = dict(payload)
+        invalid["source_url"] = None
+        invalid["idempotency_key"] = "invalid-source-asset"
+        assert client.post(f"/api/v1/bloggers/{first.id}/assets", json=invalid).status_code == 422
     finally:
         app.dependency_overrides.clear()

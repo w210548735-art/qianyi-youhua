@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 import pytest
 from sqlalchemy import func, select
@@ -18,8 +19,32 @@ from app.services.embedding_service import FakeEmbeddingService
 from app.services.memory_service import (
     MemoryConfirmationRequiredError,
     MemoryEmbeddingError,
+    MemoryNotFoundError,
     MemoryService,
 )
+
+
+def test_deleted_blogger_cannot_read_update_promote_or_search_memory(db):
+    blogger = make_blogger(db, "删除画像")
+    service = MemoryService(db, FakeEmbeddingService())
+    candidate = service.create_memory(
+        blogger.id,
+        "user_preference",
+        "偏好",
+        "偏爱村寨题材",
+        "user_confirmed",
+    )
+    blogger.deleted_at = datetime.utcnow()
+    db.commit()
+
+    with pytest.raises(MemoryNotFoundError):
+        service.get_memory(candidate.id)
+    with pytest.raises(MemoryNotFoundError):
+        service.update_memory(candidate.id, content="不应更新")
+    with pytest.raises(MemoryNotFoundError):
+        service.promote_memory(candidate.id, user_confirmed=True)
+    with pytest.raises(MemoryNotFoundError):
+        service.semantic_search(blogger.id, "村寨")
 
 
 def make_blogger(db, name: str) -> Blogger:

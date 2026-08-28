@@ -60,7 +60,13 @@ def test_search_1000_assets_under_500ms(db):
     results = AssetSearchService(db, embedding).search(
         blogger.id,
         query="酸汤鱼",
+        lib_type="knowledge",
+        category="性能测试",
         limit=50,
+        tags=["贵州", "酸汤鱼"],
+        source_type="official",
+        min_credibility=5,
+        max_credibility=5,
     )
     elapsed = perf_counter() - started
 

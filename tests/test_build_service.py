@@ -6,7 +6,7 @@ from dataclasses import replace
 from sqlalchemy import func, select
 
 from app.core.config import settings
-from app.models import Asset, AssetEmbedding, AssetSource, Blogger, DecisionLog
+from app.models import Asset, AssetEmbedding, AssetSource, Blogger, DecisionLog, Place
 from app.services import build_service as build_service_module
 from app.services.build_service import LibraryBuildService
 from app.services.deepseek_client import FakeDeepSeekClient
@@ -40,7 +40,22 @@ def test_build_inserts_three_libraries_sources_and_embeddings(db):
     assert result.status == "succeeded"
     assert db.scalar(select(func.count()).select_from(Asset)) == 28
     assert db.scalar(select(func.count()).select_from(AssetEmbedding)) == 28
-    assert db.scalar(select(func.count()).select_from(DecisionLog)) == 1
+    # 建库同时把可信种子同步为地点；每个 Agent 地点判断均保留决策审计。
+    assert db.scalar(select(func.count()).select_from(Place)) == 19
+    assert db.scalar(select(func.count()).select_from(DecisionLog)) == 20
+    output = json.loads(result.output_summary)
+    assert output["places_inserted"] == 19
+    assert all(
+        value is None
+        for place in db.scalars(select(Place))
+        for value in (
+            place.like_level,
+            place.est_cost,
+            place.est_benefit,
+            place.fits_koc,
+            place.fits_shoot,
+        )
+    )
     assert db.scalar(select(func.count()).select_from(Asset).where(Asset.lib_type == "knowledge")) == 20
     assert db.scalar(select(func.count()).select_from(Asset).where(Asset.lib_type == "material")) == 5
     assert db.scalar(select(func.count()).select_from(Asset).where(Asset.lib_type == "algorithm")) == 3
@@ -56,6 +71,7 @@ def test_idempotent_build_does_not_duplicate_assets(db):
 
     assert run.id == same_run.id
     assert db.scalar(select(func.count()).select_from(Asset)) == 28
+    assert db.scalar(select(func.count()).select_from(Place)) == 19
 
 
 def test_hybrid_search_returns_semantic_results(db):
@@ -159,3 +175,40 @@ def test_stable_pagination_and_default_soft_delete_filter(db):
     assert [item["id"] for item in first_page] == [item["id"] for item in repeated]
     assert not {item["id"] for item in first_page}.intersection(item["id"] for item in second_page)
     assert deleted.id not in {item["id"] for item in first_page + second_page}
+
+
+def test_asset_search_each_filter_combination_no_result_and_blogger_isolation(db):
+    blogger = create_blogger(db)
+    other = create_blogger(db)
+    embedding = FakeEmbeddingService()
+    service = LibraryBuildService(db, FakeDeepSeekClient(), embedding)
+    run = service.start_build(blogger.id, "test-build-search-filters")
+    assert service.execute_build(run.id).status == "succeeded"
+    search = AssetSearchService(db, embedding)
+
+    assert search.search(blogger.id, lib_type="knowledge")
+    assert search.search(blogger.id, category="美食")
+    tag_results = search.search(blogger.id, tags=["酸汤鱼"])
+    assert tag_results and all("酸汤鱼" in item["tags"] for item in tag_results)
+    source_type_results = search.search(blogger.id, source_type="official")
+    assert source_type_results and all(
+        item["source_type"] == "official" for item in source_type_results
+    )
+    source_results = search.search(blogger.id, source="民政厅")
+    assert source_results and any(item["title"] == "凯里酸汤鱼" for item in source_results)
+    credibility_results = search.search(blogger.id, min_credibility=5, max_credibility=5)
+    assert credibility_results and all(item["credibility"] == 5 for item in credibility_results)
+    combined = search.search(
+        blogger.id,
+        query="酸汤鱼",
+        lib_type="knowledge",
+        category="美食",
+        tags=["酸汤鱼"],
+        source_type="official",
+        source="民政厅",
+        min_credibility=5,
+        max_credibility=5,
+    )
+    assert [item["title"] for item in combined] == ["凯里酸汤鱼"]
+    assert search.search(blogger.id, tags=["完全不存在的标签"]) == []
+    assert search.search(other.id, query="酸汤鱼") == []

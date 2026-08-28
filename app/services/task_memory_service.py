@@ -22,7 +22,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import DecisionLog, SessionMessage, TaskArtifact, TaskCheckpoint, TaskSession
+from app.models import Blogger, DecisionLog, SessionMessage, TaskArtifact, TaskCheckpoint, TaskSession
 
 
 class TaskMemoryError(RuntimeError):
@@ -106,9 +106,12 @@ class TaskMemoryService:
             raise ValueError("task_type 和 title 不能为空")
         resolved_id = task_id or str(uuid.uuid4())
         self._validate_task_id(resolved_id)
+        self._ensure_active_blogger(blogger_id)
 
         existing = self.db.get(TaskSession, resolved_id)
         if existing is not None:
+            if existing.blogger_id != blogger_id:
+                raise TaskNotFoundError(f"任务不存在: {resolved_id}")
             self._ensure_task_directory(existing)
             self.sync_task_files(existing.id)
             return existing
@@ -150,13 +153,30 @@ class TaskMemoryService:
         task = self.db.get(TaskSession, task_id)
         if task is None:
             raise TaskNotFoundError(f"任务不存在: {task_id}")
+        self._ensure_active_blogger(task.blogger_id)
         return task
 
     def list_unfinished_tasks(self, blogger_id: int | None = None) -> list[TaskSession]:
-        statement = select(TaskSession).where(TaskSession.status.not_in(_TERMINAL_TASK_STATUSES))
+        statement = (
+            select(TaskSession)
+            .join(Blogger, Blogger.id == TaskSession.blogger_id)
+            .where(
+                TaskSession.status.not_in(_TERMINAL_TASK_STATUSES),
+                Blogger.deleted_at.is_(None),
+            )
+        )
         if blogger_id is not None:
+            self._ensure_active_blogger(blogger_id)
             statement = statement.where(TaskSession.blogger_id == blogger_id)
         return list(self.db.scalars(statement.order_by(TaskSession.updated_at, TaskSession.id)))
+
+    def _ensure_active_blogger(self, blogger_id: int) -> Blogger:
+        blogger = self.db.scalar(
+            select(Blogger).where(Blogger.id == blogger_id, Blogger.deleted_at.is_(None))
+        )
+        if blogger is None:
+            raise TaskNotFoundError(f"博主不存在: {blogger_id}")
+        return blogger
 
     def recover_task(self, task_id: str) -> TaskSession:
         """从数据库最新检查点恢复任务上下文和文件副本。"""

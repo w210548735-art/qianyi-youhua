@@ -146,7 +146,12 @@ def _json_value(value: str | None, default: Any = None) -> Any:
 
 
 def _blogger_or_404(db: Session, blogger_id: int) -> Blogger:
-    blogger = db.get(Blogger, blogger_id)
+    blogger = db.scalar(
+        select(Blogger).where(
+            Blogger.id == blogger_id,
+            Blogger.deleted_at.is_(None),
+        )
+    )
     if blogger is None:
         raise HTTPException(status_code=404, detail="BLOGGER_NOT_FOUND")
     return blogger

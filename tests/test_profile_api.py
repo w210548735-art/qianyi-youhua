@@ -3,15 +3,18 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
+from app.api.routes import get_profile_agent
 from app.db.session import get_db
 from app.main import app
 from app.models import (
     Blogger,
     ConversationMessage,
     ConversationSession,
+    DecisionLog,
     MemoryEmbedding,
     MemoryRecord,
 )
+from app.services.profile_agent import FakeProfileAgent, ProfileAgentError
 
 
 def test_profile_conversation_and_confirmation(db):
@@ -76,7 +79,7 @@ def test_ambiguous_answer_is_clarified_only_once(db):
             json={"message": "不知道"},
         )
         assert first.status_code == 200
-        assert "尽量具体" in first.json()["question"]
+        assert "博主名称" in first.json()["question"]
         assert db.get(ConversationSession, session_id).current_question == "name"
 
         second = client.post(
@@ -131,5 +134,87 @@ def test_incomplete_profile_cannot_be_confirmed(db):
         response = client.post(f"/api/v1/profile-sessions/{session.id}/confirm")
         assert response.status_code == 422
         assert db.scalar(select(func.count()).select_from(Blogger)) == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_profile_agent_extracts_multiple_fields_and_request_is_idempotent(db):
+    def override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_profile_agent] = FakeProfileAgent
+    client = TestClient(app)
+    try:
+        session_id = client.post("/api/v1/profile-sessions").json()["session_id"]
+        body = {
+            "request_id": "profile-multi-request-1",
+            "message": (
+                "我叫阿黔，主要在抖音做贵州美食和非遗，风格口播，"
+                "粉丝1万到10万，变现方式商单和探店，常跑黔东南，"
+                "爆款是酸汤鱼，周更。"
+            ),
+        }
+        first = client.post(
+            f"/api/v1/profile-sessions/{session_id}/messages",
+            json=body,
+        )
+        assert first.status_code == 200
+        assert first.json()["status"] == "confirming"
+        assert first.json()["collected_profile"]["platform"] == "抖音"
+        message_count = db.scalar(select(func.count()).select_from(ConversationMessage))
+        repeated = client.post(
+            f"/api/v1/profile-sessions/{session_id}/messages",
+            json=body,
+        )
+        assert repeated.status_code == 200
+        assert repeated.json() == first.json()
+        assert db.scalar(select(func.count()).select_from(ConversationMessage)) == message_count
+        assert db.scalar(select(func.count()).select_from(Blogger)) == 0
+        assert db.scalar(select(func.count()).select_from(MemoryRecord)) == 0
+        assert db.scalar(
+            select(func.count())
+            .select_from(DecisionLog)
+            .where(DecisionLog.decision_type == "profile_agent_turn")
+        ) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_profile_agent_failure_preserves_state_and_same_request_can_retry(db):
+    def override_db():
+        yield db
+
+    failure = ProfileAgentError(
+        "PROFILE_AGENT_REQUEST_FAILED",
+        "模拟网络失败",
+        retryable=True,
+        request_id="profile-retry-request-1",
+    )
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_profile_agent] = lambda: FakeProfileAgent(fail_with=failure)
+    client = TestClient(app)
+    try:
+        session_id = client.post("/api/v1/profile-sessions").json()["session_id"]
+        body = {"request_id": "profile-retry-request-1", "message": "我叫阿黔"}
+        failed = client.post(
+            f"/api/v1/profile-sessions/{session_id}/messages",
+            json=body,
+        )
+        assert failed.status_code == 503
+        assert failed.json()["detail"]["retryable"] is True
+        session = db.get(ConversationSession, session_id)
+        assert session.status == "collecting"
+        assert session.collected_profile_json == "{}"
+        assert db.scalar(select(func.count()).select_from(Blogger)) == 0
+        assert db.scalar(select(func.count()).select_from(MemoryRecord)) == 0
+
+        app.dependency_overrides[get_profile_agent] = FakeProfileAgent
+        recovered = client.post(
+            f"/api/v1/profile-sessions/{session_id}/messages",
+            json=body,
+        )
+        assert recovered.status_code == 200
+        assert recovered.json()["collected_profile"]["name"] == "阿黔"
     finally:
         app.dependency_overrides.clear()

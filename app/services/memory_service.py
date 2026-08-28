@@ -434,6 +434,7 @@ class MemoryService:
         record = self.db.get(MemoryRecord, memory_id)
         if record is None:
             raise MemoryNotFoundError("MEMORY_NOT_FOUND")
+        self._get_blogger(record.blogger_id)
         if record.status == "active":
             return record
         if record.status != "candidate":
@@ -478,6 +479,7 @@ class MemoryService:
         old = self.db.get(MemoryRecord, memory_id)
         if old is None:
             raise MemoryNotFoundError("MEMORY_NOT_FOUND")
+        self._get_blogger(old.blogger_id)
         new_title = title if title is not None else old.title
         new_content = content if content is not None else old.content
         new_confidence = confidence if confidence is not None else old.confidence
@@ -518,6 +520,7 @@ class MemoryService:
         record = self.db.get(MemoryRecord, memory_id)
         if record is None:
             raise MemoryNotFoundError("MEMORY_NOT_FOUND")
+        self._get_blogger(record.blogger_id)
         return record
 
     def list_memories(
@@ -809,7 +812,12 @@ class MemoryService:
     # 查询和格式化辅助
     # ------------------------------------------------------------------
     def _get_blogger(self, blogger_id: int) -> Blogger:
-        blogger = self.db.get(Blogger, blogger_id)
+        blogger = self.db.scalar(
+            select(Blogger).where(
+                Blogger.id == blogger_id,
+                Blogger.deleted_at.is_(None),
+            )
+        )
         if blogger is None:
             raise MemoryNotFoundError("BLOGGER_NOT_FOUND")
         return blogger

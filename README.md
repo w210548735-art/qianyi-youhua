@@ -36,6 +36,13 @@
 
 6. 浏览器访问 `http://127.0.0.1:8000`。页面只用于功能演示，不包含视觉设计。
 
+## 第一阶段数据规则
+
+- 博主采用可审计软删除。关联资产、地点、任务、决策和记忆历史继续保留，但所有默认业务入口都拒绝访问已删除博主；第一阶段不开放恢复 API。
+- 地点的 `est_cost`、`est_benefit`、`like_level`、`fits_koc`、`fits_shoot` 只有在用户明确提供或可信来源明确记载时才赋值，未知值在数据库和 API 中均保持 `null`。
+- 资产检索支持 `q`、`lib_type`、`category`、独立 `tags`、`source_type`、`source`、`min_credibility`、`max_credibility`、`page`、`page_size` 组合使用。
+- 当前 Alembic head 为 `0002_phase1_closure`；迁移同时支持空库 `base → head` 和已有 `0001_phase1_initial → 0002_phase1_closure`。
+
 ## 测试与质量门禁
 
 - 全量测试与覆盖率：
@@ -51,6 +58,14 @@
 - 性能验收：
 
   `E:\Anaconda\envs\DL\python.exe -m pytest tests\test_performance.py -q -s --basetemp E:\Guikesong\.pytest-performance`
+
+- 默认离线、显式启用的真实集成 smoke：
+
+  `set RUN_REAL_EMBEDDING=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_real_integrations.py -q -rs`
+
+  `set RUN_REAL_DEEPSEEK=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_real_integrations.py -q -rs`
+
+  未设置开关时不会加载真实模型或调用外部 API。真实 DeepSeek smoke 仅在本地密钥和网络均可用时执行，测试不会输出密钥。
 
 ## 运行时数据边界
 

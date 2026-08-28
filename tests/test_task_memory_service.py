@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
+import pytest
 from sqlalchemy import select
 
 from app.models import (
@@ -12,7 +14,7 @@ from app.models import (
     TaskArtifact,
     TaskSession,
 )
-from app.services.task_memory_service import TaskMemoryService
+from app.services.task_memory_service import TaskMemoryService, TaskNotFoundError
 
 
 def create_blogger(db) -> Blogger:
@@ -47,6 +49,26 @@ def test_create_task_creates_database_record_and_standard_directory(db, tmp_path
     assert (task_dir / "final_summary.json").is_file()
     assert (task_dir / "artifacts").is_dir()
     assert json.loads((task_dir / "task.json").read_text(encoding="utf-8"))["task_id"] == task.id
+
+
+def test_deleted_blogger_task_entries_are_blocked_and_cross_blogger_id_is_isolated(db, tmp_path: Path):
+    owner = create_blogger(db)
+    other = create_blogger(db)
+    service = TaskMemoryService(db, tmp_path / "tasks")
+    task = service.create_task(owner.id, "demo", "隔离任务", task_id="isolated-task")
+
+    with pytest.raises(TaskNotFoundError):
+        service.create_task(other.id, "demo", "越权任务", task_id=task.id)
+
+    owner.deleted_at = datetime.utcnow()
+    db.commit()
+    with pytest.raises(TaskNotFoundError):
+        service.get_task(task.id)
+    with pytest.raises(TaskNotFoundError):
+        service.recover_task(task.id)
+    with pytest.raises(TaskNotFoundError):
+        service.create_task(owner.id, "demo", "删除后新任务")
+    assert service.list_unfinished_tasks() == []
 
 
 def test_messages_decisions_and_checkpoints_are_ordered_and_persisted(db, tmp_path: Path):

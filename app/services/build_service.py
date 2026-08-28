@@ -20,6 +20,7 @@ from app.models import (
 )
 from app.services.deepseek_client import DeepSeekClient
 from app.services.embedding_service import EmbeddingService
+from app.services.place_service import PlaceService
 
 
 class LibraryBuildService:
@@ -37,7 +38,12 @@ class LibraryBuildService:
         existing = self.db.scalar(select(BuildRun).where(BuildRun.idempotency_key == idempotency_key))
         if existing:
             return existing
-        blogger = self.db.get(Blogger, blogger_id)
+        blogger = self.db.scalar(
+            select(Blogger).where(
+                Blogger.id == blogger_id,
+                Blogger.deleted_at.is_(None),
+            )
+        )
         if blogger is None:
             raise ValueError("BLOGGER_NOT_FOUND")
         run = BuildRun(
@@ -61,7 +67,12 @@ class LibraryBuildService:
         run.started_at = datetime.utcnow()
         self.db.commit()
         try:
-            blogger = self.db.get(Blogger, run.blogger_id)
+            blogger = self.db.scalar(
+                select(Blogger).where(
+                    Blogger.id == run.blogger_id,
+                    Blogger.deleted_at.is_(None),
+                )
+            )
             if blogger is None:
                 raise ValueError("BLOGGER_NOT_FOUND")
             profile = json.loads(self._profile_json(blogger))
@@ -160,8 +171,10 @@ class LibraryBuildService:
                     self.db.add(AssetSource(asset_id=asset.id, source_document_id=source.id))
                 inserted += 1
 
+            places = PlaceService(self.db).sync_trusted_seeds(blogger.id, seeds, commit=False)
             summary = {
                 "inserted": inserted,
+                "places_inserted": len(places),
                 "knowledge": len(seeds),
                 "material": 5,
                 "algorithm": 3,
