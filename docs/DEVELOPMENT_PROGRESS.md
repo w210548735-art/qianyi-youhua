@@ -2,9 +2,15 @@
 
 更新时间：2026-08-29
 当前分支：`develop/phase-3-output`
-阶段状态：`第三阶段实现门禁已通过，等待独立验收；禁止启动第四阶段`
+阶段状态：`第三阶段收尾修复门禁已通过，等待再次独立验收；禁止启动第四阶段`
 
 ## 2026-08-29 第三阶段实现里程碑
+
+- 独立验收发现并已修复 P3-F1 至 P3-F4：Metric 幂等唯一范围由全局键统一为 `schedule_id + idempotency_key`；真实数据库写入失败先回滚并用稳定 `job_id` 落为 failed；API 只保留外层任务/指标共用幂等键并透传 `collected_at`；数据库和 Schema 均只允许 `manual/simulated`。
+- 新增 `0005_phase3_metric_contract_fix`，兼容已经升级到 `0004` 的数据库，重建 Metric 约束并保留现有行。若降级时已有跨排期重复键，迁移会明确拒绝而不删除、合并或改写业务数据。
+- 收尾专项：回收、API、迁移共 `17 passed`；含排期、smoke、性能的第三阶段收尾组合 `25 passed`。全量覆盖率门禁为 `157 passed, 6 skipped, 26 warnings in 245.99s`，`app/services=80.94%`。
+- 收尾静态与迁移：Ruff `All checks passed!`；Mypy 39 源文件无问题；单一 head=`0005_phase3_metric_contract_fix`；空库/0003/0004升级、往返和 `alembic check` 均通过且无漂移。
+- 收尾性能：1000条输出查询 `0.022082s`，1000条排期查询 `0.013520s`，输出详情 `0.007451s`，排期创建 `0.016143s`。真实 smoke 本轮联网复测 `2 passed in 21.97s`（RTX 4060 CUDA/512维及 DeepSeek v4-flash）。
 
 - 新增 `Output`、`OutputAsset`、`OutputPlace`、`AssetPlace`、`Schedule`、`PublishEvent`、`ReminderEvent`、`Metric`、`CollectionJob` 及显式迁移 `0004_phase3_output`；输出人工编辑创建不可变新版本，旧版本和排期引用不被覆盖。
 - `OutputAgent` 提供脚本、分镜、排期和路线说明能力；生产使用 `deepseek-v4-flash`，离线使用 Fake。合法JSON但字段不完整同样进入唯一一次格式修复，第二次仍失败则返回 `OUTPUT_INVALID_JSON`。
@@ -13,13 +19,13 @@
 - 路线顺序由后端按净收益、喜爱度、KOC、拍摄适配和画像契合度确定性计算；商业字段为 `NULL` 或来源不可信时返回具体缺失地点/字段，Agent 无权改变公式、输入或顺序。
 - 排期按画像日更/周更/月更约束，提醒使用可注入时钟且同日去重；发布仅为本地模拟并写 PublishEvent；手工/模拟回收只落非负原始 Metric，不执行反馈判断或资产更新。
 - 输出、排期、提醒、模拟发布、回收、证据回查 API 和 Jinja2/原生JavaScript演示区均已接通；跨博主统一404，页面明确不代表真实平台发布/取数。
-- 迁移专项验证 `base → 0004`、`0003 → 0004` 数据保留、downgrade/upgrade 和 runtime 预建兼容；一期、二期测试继续固定到各自 revision。
-- 在全新临时库升级到head后执行 `alembic check`：`No new upgrade operations detected`，ORM与0004无结构漂移。
-- 最终工作树全量回归：`152 passed, 6 skipped, 24 warnings in 258.34s`。带覆盖率全量门禁：同为152通过/6跳过，耗时 `281.15s`，`app/services` 聚合覆盖率 `80.92%`，且 `--cov-fail-under=80` 通过；默认跳过项仅为需显式开关的真实集成。
+- 迁移专项验证 `base → 0005`、`0003 → 0005`、`0004 → 0005` 数据保留、downgrade/upgrade 和 runtime 预建兼容；一期、二期测试继续固定到各自 revision。
+- 在全新临时库升级到head后执行 `alembic check`：`No new upgrade operations detected`，ORM与0005无结构漂移。
+- 原第三阶段实现基线全量回归：`152 passed, 6 skipped, 24 warnings in 258.34s`；收尾修复后的最新结果以上方 `157 passed` 记录为准。
 - Ruff：`All checks passed!`；Mypy：`Success: no issues found in 39 source files`。
-- 性能实测：1000条输出查询 `0.025130s`，1000条排期查询 `0.012816s`，输出详情 `0.010510s`，排期创建 `0.020784s`，1000地点路线排序 `0.013698s`。
-- 真实集成：RTX 4060 CUDA 上 BGE 512维通过；DeepSeek v4-flash 真实请求和一次结构修复通过；合计 `2 passed in 43.56s`。
-- 安全扫描未发现跟踪的Key、数据库、模型权重、任务日志或pytest临时目录；`.tmp_phase3*/` 已加入忽略。第三阶段实现提交 `4e44134` 已通过SSH推送到 `origin/develop/phase-3-output`；未提交或合并main，正在提交最终证据文档并发送独立验收摘要。
+- 原实现性能基线：1000条输出查询 `0.025130s`，1000条排期查询 `0.012816s`，输出详情 `0.010510s`，排期创建 `0.020784s`，1000地点路线排序 `0.013698s`；收尾复测结果见上方。
+- 原实现真实集成：RTX 4060 CUDA 上 BGE 512维通过；DeepSeek v4-flash 真实请求和一次结构修复通过；合计 `2 passed in 43.56s`；收尾联网复测结果见上方。
+- 安全扫描未发现跟踪的Key、数据库、模型权重、任务日志或pytest临时目录；`.tmp_phase3*/` 已加入忽略。原第三阶段实现提交 `4e44134` 已通过SSH推送；本次收尾修复完成门禁后独立提交并推送，未提交或合并main。
 
 ## 2026-08-29 第三阶段开工
 

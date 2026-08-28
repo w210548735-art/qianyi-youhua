@@ -15,6 +15,7 @@ from app.models import AssetPlace, CollectionJob, Metric, Output, PublishEvent, 
 from app.schemas.output import (
     CollectionCreateRequest,
     CollectionJobRead,
+    CollectionRetryRequest,
     MetricRead,
     OutputDeleteRead,
     OutputListItem,
@@ -484,23 +485,22 @@ def collect_metrics(
 ) -> dict[str, Any]:
     try:
         service = CollectionService(db)
+        source_type = body.metrics.source_type if body.metrics is not None else "simulated"
         job = service.start_collection(
             blogger_id,
             schedule_id,
             body.idempotency_key,
-            source_type=body.source_type,
+            source_type=source_type,
         )
         metric_values = None
         if body.metrics is not None:
-            metric_values = body.metrics.model_dump(
-                exclude={"idempotency_key", "collected_at"}
-            )
+            metric_values = body.metrics.model_dump(exclude_none=True)
         if job.status in {"pending", "failed"}:
             job = service.execute_collection(
                 job.id,
                 metric_values,
                 blogger_id=blogger_id,
-                source_type=body.source_type,
+                source_type=source_type,
             )
         return collection_payload(job)
     except CollectionServiceError as exc:
@@ -511,16 +511,18 @@ def collect_metrics(
 def retry_collection(
     blogger_id: int,
     job_id: int,
-    body: CollectionCreateRequest,
+    body: CollectionRetryRequest,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     try:
         metrics = None
+        source_type = None
         if body.metrics is not None:
-            metrics = body.metrics.model_dump(exclude={"idempotency_key", "collected_at"})
+            metrics = body.metrics.model_dump(exclude_none=True)
+            source_type = body.metrics.source_type
         return collection_payload(
             CollectionService(db).retry_collection(
-                blogger_id, job_id, metrics, source_type=body.source_type
+                blogger_id, job_id, metrics, source_type=source_type
             )
         )
     except CollectionServiceError as exc:

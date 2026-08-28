@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -174,14 +174,13 @@ def test_output_schedule_publish_collection_full_api_and_isolation(db, tmp_path:
             f"/api/v1/bloggers/{owner.id}/schedules/{schedule_id}/collections",
             json={
                 "idempotency_key": "collection-api-key",
-                "source_type": "manual",
                 "metrics": {
-                    "idempotency_key": "metric-api-key",
                     "source_type": "manual",
                     "views": 120,
                     "likes": 20,
                     "comments": 3,
                     "collects": 8,
+                    "collected_at": "2026-09-03T08:09:10",
                 },
             },
         )
@@ -190,6 +189,32 @@ def test_output_schedule_publish_collection_full_api_and_isolation(db, tmp_path:
         metrics = client.get(f"/api/v1/bloggers/{owner.id}/metrics")
         assert metrics.status_code == 200
         assert metrics.json()[0]["source_type"] == "manual" and metrics.json()[0]["views"] == 120
+        assert metrics.json()[0]["idempotency_key"] == "collection-api-key"
+        assert datetime.fromisoformat(metrics.json()[0]["collected_at"]) == datetime(
+            2026, 9, 3, 8, 9, 10
+        )
+
+        ignored_nested_key = client.post(
+            f"/api/v1/bloggers/{owner.id}/schedules/{schedule_id}/collections",
+            json={
+                "idempotency_key": "another-collection-key",
+                "metrics": {
+                    "idempotency_key": "must-not-be-silently-ignored",
+                    "source_type": "manual",
+                    "views": 1,
+                },
+            },
+        )
+        assert ignored_nested_key.status_code == 422
+        ignored_outer_source = client.post(
+            f"/api/v1/bloggers/{owner.id}/schedules/{schedule_id}/collections",
+            json={
+                "idempotency_key": "another-collection-key",
+                "source_type": "manual",
+                "metrics": {"source_type": "manual", "views": 1},
+            },
+        )
+        assert ignored_outer_source.status_code == 422
     finally:
         clear_api()
 

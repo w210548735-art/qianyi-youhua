@@ -17,7 +17,7 @@ ScheduleStatus = Literal["pending", "published", "collected", "cancelled"]
 PublishStatus = Literal["pending", "published", "failed", "cancelled"]
 ReminderStatus = Literal["pending", "sent", "failed", "cancelled"]
 CollectionStatus = Literal["pending", "running", "succeeded", "failed"]
-MetricSourceType = Literal["manual", "simulated", "platform"]
+MetricSourceType = Literal["manual", "simulated"]
 
 
 class OutputSourceRef(BaseModel):
@@ -232,7 +232,6 @@ class MetricCreateRequest(BaseModel):
     likes: int = Field(default=0, ge=0)
     comments: int = Field(default=0, ge=0)
     collects: int = Field(default=0, ge=0)
-    idempotency_key: str = Field(min_length=8, max_length=100)
     collected_at: datetime | None = None
 
 
@@ -259,7 +258,12 @@ class CollectionCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     idempotency_key: str = Field(min_length=8, max_length=100)
-    source_type: Literal["manual", "simulated"] = "simulated"
+    metrics: MetricCreateRequest | None = None
+
+
+class CollectionRetryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     metrics: MetricCreateRequest | None = None
 
 
@@ -292,6 +296,7 @@ __all__ = [
     "CollectionCreateRequest",
     "CollectionJobRead",
     "CollectionRequest",
+    "CollectionRetryRequest",
     "CollectionStatus",
     "MetricCreateRequest",
     "MetricRead",

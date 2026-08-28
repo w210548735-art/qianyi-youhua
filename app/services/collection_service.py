@@ -128,6 +128,7 @@ class CollectionService:
             metrics = args[0] if args else None
 
         job, schedule = self._get_job(job_id, blogger_id)
+        stable_job_id = job.id
         if job.status == "succeeded":
             return job
         if job.status == "running":
@@ -177,7 +178,12 @@ class CollectionService:
             schedule.status = "collected"
             job.status = "succeeded"
             job.result_json = json.dumps(
-                {"source_type": payload_source, **values}, ensure_ascii=False
+                {
+                    "source_type": payload_source,
+                    "collected_at": collected_at.isoformat(),
+                    **values,
+                },
+                ensure_ascii=False,
             )
             job.error_code = None
             job.error_message = None
@@ -193,11 +199,17 @@ class CollectionService:
                 self.db.refresh(job)
             return job
         except Exception as exc:
-            code = exc.code if isinstance(exc, CollectionServiceError) else "COLLECTION_FAILED"
-            self._persist_failure(job.id, code, str(exc))
+            if isinstance(exc, CollectionServiceError):
+                code = exc.code
+            elif isinstance(exc, SQLAlchemyError):
+                code = "COLLECTION_PERSIST_FAILED"
+            else:
+                code = "COLLECTION_FAILED"
+            self.db.rollback()
+            self._persist_failure(stable_job_id, code, str(exc))
             if isinstance(exc, CollectionServiceError):
                 raise
-            raise CollectionServiceError(code) from exc
+            raise CollectionServiceError(code, status_code=500) from exc
 
     execute = execute_collection
 

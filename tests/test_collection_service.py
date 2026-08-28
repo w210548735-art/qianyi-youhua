@@ -71,6 +71,38 @@ def test_manual_collection_records_nonnegative_metric_and_is_idempotent(db) -> N
     assert db.query(Metric).count() == 1
 
 
+def test_metric_idempotency_is_scoped_to_schedule_and_allows_cross_blogger_reuse(db) -> None:
+    owner = _blogger(db, name="博主A")
+    other = _blogger(db, name="博主B")
+    first_schedule = _schedule(db, owner.id, title="脚本A1")
+    second_schedule = _schedule(db, owner.id, title="脚本A2")
+    other_schedule = _schedule(db, other.id, title="脚本B1")
+    service = CollectionService(db)
+
+    for blogger_id, schedule_id, views in (
+        (owner.id, first_schedule, 11),
+        (owner.id, second_schedule, 22),
+        (other.id, other_schedule, 33),
+    ):
+        job = service.start_collection(
+            blogger_id, schedule_id, "shared-collection-key", source_type="manual"
+        )
+        completed = service.execute_collection(
+            job.id,
+            {"source_type": "manual", "views": views},
+            blogger_id=blogger_id,
+        )
+        assert completed.status == "succeeded"
+
+    assert db.query(Metric).count() == 3
+    assert sorted(metric.views for metric in db.query(Metric).all()) == [11, 22, 33]
+    duplicate = service.start_collection(
+        owner.id, first_schedule, "shared-collection-key", source_type="manual"
+    )
+    assert service.execute_collection(duplicate.id, blogger_id=owner.id).id == duplicate.id
+    assert db.query(Metric).count() == 3
+
+
 def test_collection_requires_published_schedule_and_isolates_bloggers(db) -> None:
     owner = _blogger(db, name="博主A")
     other = _blogger(db, name="博主B")
@@ -106,6 +138,45 @@ def test_collection_failure_keeps_schedule_published_and_retry_succeeds(db) -> N
     assert db.get(CollectionJob, job.id).status == "failed"
     assert db.get(Schedule, schedule_id).status == "published"
     recovered = service.retry_collection(owner.id, job.id)
+    assert recovered.status == "succeeded"
+    assert db.query(Metric).count() == 1
+
+
+def test_database_flush_failure_rolls_back_persists_failed_job_and_can_retry(
+    db, monkeypatch
+) -> None:
+    owner = _blogger(db, name="博主A")
+    schedule_id = _schedule(db, owner.id, title="脚本A")
+    service = CollectionService(db)
+    job = service.start_collection(owner.id, schedule_id, "db-retry-key", source_type="manual")
+    stable_job_id = job.id
+    original_normalise = service._normalise_metrics
+    monkeypatch.setattr(
+        service,
+        "_normalise_metrics",
+        lambda _payload: {"views": -1, "likes": 0, "comments": 0, "collects": 0},
+    )
+    with pytest.raises(CollectionServiceError) as failed:
+        service.execute_collection(
+            stable_job_id,
+            {"source_type": "manual", "views": 9},
+            blogger_id=owner.id,
+        )
+    assert failed.value.code == "COLLECTION_PERSIST_FAILED"
+    failed_job = db.get(CollectionJob, stable_job_id)
+    assert failed_job is not None
+    assert failed_job.status == "failed"
+    assert failed_job.error_code == "COLLECTION_PERSIST_FAILED"
+    assert "CHECK constraint failed" in (failed_job.error_message or "")
+    assert db.get(Schedule, schedule_id).status == "published"
+    assert db.query(Metric).count() == 0
+
+    monkeypatch.setattr(service, "_normalise_metrics", original_normalise)
+    recovered = service.retry_collection(
+        owner.id,
+        stable_job_id,
+        {"source_type": "manual", "views": 9},
+    )
     assert recovered.status == "succeeded"
     assert db.query(Metric).count() == 1
 

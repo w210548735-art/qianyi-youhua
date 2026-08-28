@@ -673,14 +673,18 @@ class Metric(Base):
     __tablename__ = "metric"
     __table_args__ = (
         CheckConstraint(
-            "source_type IN ('manual', 'simulated', 'platform')",
+            "source_type IN ('manual', 'simulated')",
             name="ck_metric_source_type",
         ),
         CheckConstraint("views >= 0", name="ck_metric_views_nonnegative"),
         CheckConstraint("likes >= 0", name="ck_metric_likes_nonnegative"),
         CheckConstraint("comments >= 0", name="ck_metric_comments_nonnegative"),
         CheckConstraint("collects >= 0", name="ck_metric_collects_nonnegative"),
-        UniqueConstraint("idempotency_key", name="uq_metric_idempotency"),
+        UniqueConstraint(
+            "schedule_id",
+            "idempotency_key",
+            name="uq_metric_schedule_idempotency",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
