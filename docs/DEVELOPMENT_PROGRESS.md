@@ -11,6 +11,7 @@
 - 收尾专项：回收、API、迁移共 `17 passed`；含排期、smoke、性能的第三阶段收尾组合 `25 passed`。全量覆盖率门禁为 `157 passed, 6 skipped, 26 warnings in 245.99s`，`app/services=80.94%`。
 - 收尾静态与迁移：Ruff `All checks passed!`；Mypy 39 源文件无问题；单一 head=`0005_phase3_metric_contract_fix`；空库/0003/0004升级、往返和 `alembic check` 均通过且无漂移。
 - 收尾性能：1000条输出查询 `0.022082s`，1000条排期查询 `0.013520s`，输出详情 `0.007451s`，排期创建 `0.016143s`。真实 smoke 本轮联网复测 `2 passed in 21.97s`（RTX 4060 CUDA/512维及 DeepSeek v4-flash）。
+- 收尾实现提交 `2bd4708` 已通过 SSH 推送到 `origin/develop/phase-3-output`；最终证据文档随当前分支推送，随后向独立验收会话发送结构化摘要并暂停。
 
 - 新增 `Output`、`OutputAsset`、`OutputPlace`、`AssetPlace`、`Schedule`、`PublishEvent`、`ReminderEvent`、`Metric`、`CollectionJob` 及显式迁移 `0004_phase3_output`；输出人工编辑创建不可变新版本，旧版本和排期引用不被覆盖。
 - `OutputAgent` 提供脚本、分镜、排期和路线说明能力；生产使用 `deepseek-v4-flash`，离线使用 Fake。合法JSON但字段不完整同样进入唯一一次格式修复，第二次仍失败则返回 `OUTPUT_INVALID_JSON`。
