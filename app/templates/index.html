@@ -308,7 +308,7 @@
 
   <section id="feedbackReportSection">
     <h2>10. 反馈闭环与经营报告（第四阶段）</h2>
-    <p><strong>证据边界：</strong>manual 是用户明确录入的数据；simulated 只用于演示。候选在确认前不会改变画像、三库或地点。报告区分 actual、estimated 与 data_insufficient。</p>
+    <p><strong>证据边界：</strong>manual 是用户明确录入的数据；simulated 只用于演示。候选在确认前不会改变画像、三库或地点。报告区分 actual、estimated、data_insufficient 与 simulation_only；模拟预览不计入实际流量。</p>
     <h3>反馈分析、候选确认与拒绝</h3>
     <div class="row">
       <label>Output ID <input id="feedbackOutputId" type="number" min="1"></label>
@@ -1535,8 +1535,13 @@ function renderReportCharts(charts) {
   (charts || []).forEach(chart => {
     const wrapper = document.createElement('div');
     const heading = document.createElement('strong');
-    heading.textContent = chart.title || '确定性图表';
+    heading.textContent = `${chart.title || '确定性图表'} [${chart.status || 'unknown'}]`;
     wrapper.append(heading);
+    if (chart.status === 'simulation_only') {
+      const notice = document.createElement('p');
+      notice.textContent = '模拟预览（simulation_only），不计入实际流量或真实经营结论。';
+      wrapper.append(notice);
+    }
     const svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('viewBox', '0 0 600 180');
     svg.setAttribute('width', '100%');

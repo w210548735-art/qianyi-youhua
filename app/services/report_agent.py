@@ -113,7 +113,11 @@ class FakeReportAgent:
             sections: dict[str, dict[str, Any]] = {}
             messages = {
                 "money": "实际商业数据完整性决定是否能形成实际盈亏结论。",
-                "traffic": "流量表现应结合历史趋势和互动质量持续观察。",
+                "traffic": (
+                    "当前只有模拟流量，仅作为 simulation_only 预览，不形成实际经营结论。"
+                    if _section_status(deterministic_snapshot, "traffic") == "simulation_only"
+                    else "实际流量只采用 manual 指标，并结合历史趋势和互动质量持续观察。"
+                ),
                 "product": "内容产出结构应与已确认的主攻方向保持一致。",
                 "supplier": "供应商判断只采用可追溯的已确认商业数据。",
             }
@@ -235,6 +239,7 @@ class DeepSeekReportAgent:
                 "不得自行计算或修改图表数据",
                 "data_insufficient 不能解释为零、赚钱或亏损",
                 "estimated 不能表述为实际结果",
+                "simulation_only 只能表述为模拟预览，不得称为实际流量或经营结论",
             ],
         }
         first = self._call(api_key, prompt, request_id)

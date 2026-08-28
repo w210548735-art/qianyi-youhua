@@ -112,8 +112,8 @@ def test_traffic_and_actual_money_formulas_preserve_null_and_manual_boundary(db)
     service = IndicatorService(db)
     rows = {row.formula_key: row for row in service.initialize_defaults(blogger.id)}
 
-    assert service.evaluate(rows["traffic_views"], now).value == 150
-    assert service.evaluate(rows["traffic_engagement_rate"], now).value == pytest.approx(20 / 150)
+    assert service.evaluate(rows["traffic_views"], now).value == 100
+    assert service.evaluate(rows["traffic_engagement_rate"], now).value == pytest.approx(15 / 100)
     assert service.evaluate(rows["money_actual_revenue"], now).value == 500
     assert service.evaluate(rows["money_actual_cost"], now).value == 200
     assert service.evaluate(rows["money_actual_net"], now).value == 300

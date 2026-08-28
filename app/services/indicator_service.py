@@ -413,28 +413,60 @@ class IndicatorService:
     def _metric_evidence(rows: list[Metric]) -> dict[str, Any]:
         return {"metric_ids": [row.id for row in rows], "output_ids": sorted({row.output_id for row in rows})}
 
+    def _real_traffic_rows(
+        self,
+        blogger_id: int,
+        start: datetime,
+        end: datetime,
+    ) -> tuple[list[Metric], list[Metric]]:
+        rows = self._metric_rows(blogger_id, start, end)
+        return (
+            [row for row in rows if row.source_type == "manual"],
+            [row for row in rows if row.source_type == "simulated"],
+        )
+
+    def _real_traffic_evidence(
+        self,
+        manual: list[Metric],
+        simulated: list[Metric],
+    ) -> dict[str, Any]:
+        return {
+            **self._metric_evidence(manual),
+            "source_scope": "manual_only",
+            "simulated_available": bool(simulated),
+            "simulated_excluded": len(simulated),
+            "simulated_excluded_ids": [row.id for row in simulated],
+        }
+
     def _traffic_views(self, blogger_id: int, at: datetime) -> FormulaResult:
-        rows = self._metric_rows(blogger_id, at - timedelta(days=30), at)
-        if not rows:
-            return FormulaResult(None, "data_insufficient", {"reason": "近30天无有效Metric"})
-        return FormulaResult(float(sum(row.views for row in rows)), "ok", self._metric_evidence(rows))
+        manual, simulated = self._real_traffic_rows(blogger_id, at - timedelta(days=30), at)
+        evidence = self._real_traffic_evidence(manual, simulated)
+        if not manual:
+            return FormulaResult(None, "data_insufficient", {**evidence, "reason": "近30天无manual流量Metric"})
+        return FormulaResult(float(sum(row.views for row in manual)), "ok", evidence)
 
     def _traffic_engagement_rate(self, blogger_id: int, at: datetime) -> FormulaResult:
-        rows = self._metric_rows(blogger_id, at - timedelta(days=30), at)
-        views = sum(row.views for row in rows)
-        if not rows or views == 0:
+        manual, simulated = self._real_traffic_rows(blogger_id, at - timedelta(days=30), at)
+        evidence = self._real_traffic_evidence(manual, simulated)
+        views = sum(row.views for row in manual)
+        if not manual or views == 0:
             return FormulaResult(
-                None, "data_insufficient", {**self._metric_evidence(rows), "reason": "无样本或分母为0"}
+                None, "data_insufficient", {**evidence, "reason": "无manual样本或分母为0"}
             )
-        interactions = sum((row.likes + row.comments + row.collects + row.shares for row in rows), start=0)
-        return FormulaResult(round(interactions / views, 8), "ok", self._metric_evidence(rows))
+        interactions = sum((row.likes + row.comments + row.collects + row.shares for row in manual), start=0)
+        return FormulaResult(round(interactions / views, 8), "ok", evidence)
 
     def _traffic_views_trend(self, blogger_id: int, at: datetime) -> FormulaResult:
-        previous = self._metric_rows(blogger_id, at - timedelta(days=14), at - timedelta(days=7))
-        current = self._metric_rows(blogger_id, at - timedelta(days=7), at)
+        previous, previous_simulated = self._real_traffic_rows(
+            blogger_id, at - timedelta(days=14), at - timedelta(days=7)
+        )
+        current, current_simulated = self._real_traffic_rows(blogger_id, at - timedelta(days=7), at)
         old = sum(row.views for row in previous)
         new = sum(row.views for row in current)
-        evidence = self._metric_evidence(previous + current)
+        evidence = self._real_traffic_evidence(
+            previous + current,
+            previous_simulated + current_simulated,
+        )
         evidence.update({"previous_7d_views": old, "current_7d_views": new})
         if not previous or not current or old == 0:
             evidence["reason"] = "两窗口样本不足或前窗分母为0"

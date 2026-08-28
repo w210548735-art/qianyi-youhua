@@ -2,7 +2,19 @@
 
 更新时间：2026-08-29
 当前分支：`develop/phase-4-feedback`
-阶段状态：`第四阶段实现、本地门禁与Git交付已通过，待独立验收；禁止启动第五阶段`
+阶段状态：`第四阶段独立门禁返修已通过本地门禁，待Git交付及再次独立验收；禁止启动第五阶段`
+
+## 2026-08-29 第四阶段独立门禁返修
+
+- 根因：`ReportDataService` 与三个 traffic 指标直接聚合全部 Metric，导致 simulated 被标成 actual；报告只凭 Place 商业字段非 NULL 就形成 estimated；Feedback 确认留下 Revision 但 Route/Report 未读取其字段级来源。
+- 统一流量口径：实际流量事实、互动率、趋势、实际图表和默认 traffic 指标只使用 manual Metric；simulated-only 返回 `simulation_only`，混合数据将 simulated 放入独立预览，并在 data_quality/evidence 中记录排除数量和 ID。
+- 统一地点口径：新增批量 `commercial_data_policy`，路线和报告共同接受人工来源、可信来源+可信度≥3，或 applied `PlaceCommercialRevision` 中显式 `place_overrides` 字段；不改写地点原始 source/origin，未确认字段不继承信任。
+- 迁移策略：复用 0006 已有 `PlaceCommercialRevision` 的 after/reason/status/confirmed_at/applied_at，不新增表或字段，不改写 0001-0006；Alembic 仍为单一 head `0006_phase4_feedback`，原迁移全路径测试继续通过。
+- 新增 `test_phase4_boundary_regressions.py`，覆盖 simulated-only、混合排除、指标来源、0分母/趋势、低可信地点、可信种子、确认后路线/报告可追溯及拒绝/失败回滚；扩展专项 `69 passed`。
+- 最终全量覆盖率门禁：`225 passed, 8 skipped, 39 warnings in 529.03s`，`app/services=82.46%`；Ruff app/tests/migrations 与 Mypy app 通过。
+- 最终性能：1000 Metric 反馈预分析 `0.087343s`、报告聚合 `0.261454s`；1000 Feedback/Report 列表 `0.025215s/0.025791s`，CRUD `0.015531s`；1000 地点来源策略 `0.027150s`、地点报告 `0.109573s`。
+- 显式真实集成：BGE/CUDA 512维与 DeepSeek v4-flash `2 passed in 35.50s`。
+- 待完成：敏感扫描、收尾提交、SSH 推送、clean/0/0 复核及再次向独立验收会话发送摘要。
 
 ## 2026-08-29 第四阶段实现里程碑
 

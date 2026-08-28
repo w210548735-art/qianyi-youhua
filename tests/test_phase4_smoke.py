@@ -35,6 +35,7 @@ def test_phase4_demo_has_real_feedback_indicator_report_wiring() -> None:
         assert path in page
     assert "manual" in page and "simulated" in page
     assert "actual" in page and "estimated" in page and "data_insufficient" in page
+    assert "simulation_only" in page and "模拟预览" in page and "不计入实际流量" in page
     assert "textContent" in page
     assert "innerHTML" not in page
 

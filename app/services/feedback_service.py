@@ -766,17 +766,27 @@ class FeedbackService:
                 raise FeedbackServiceError("FEEDBACK_SIMULATION_BOUNDARY")
             self._mark_rejected(revision, now)
             return
+        override_values = dict(overrides.get(place.id, {}))
         values = {
             field: value
-            for field, value in {**after, **dict(overrides.get(place.id, {}))}.items()
+            for field, value in {**after, **override_values}.items()
             if field in self.COMMERCIAL_FIELDS and value is not None
         }
         # Agent 建议不能把未知商业值补成数字；NULL 只接受确认请求中的显式覆盖。
         for field, value in values.items():
-            if before.get(field) is None and field not in overrides.get(place.id, {}):
+            if before.get(field) is None and field not in override_values:
                 raise FeedbackServiceError("FEEDBACK_COMMERCIAL_CONFIRMATION_REQUIRED")
             setattr(place, field, value)
-        revision.after_json = self._json(values)
+        # 只有确认请求中显式提供的字段才成为下游可识别的字段级商业来源。
+        revision.after_json = self._json(
+            {
+                **values,
+                "_confirmed_fields": sorted(
+                    field for field in override_values if field in self.COMMERCIAL_FIELDS
+                ),
+                "_confirmation_source": "user_override",
+            }
+        )
         self._mark_applied(revision, now)
 
     def _apply_or_reject_library(

@@ -12,6 +12,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Blogger, Metric, OperationalIndicator, Output, OutputPlace, Place
+from app.services.commercial_data_policy import (
+    place_commercial_provenance_map,
+    trusted_estimate_places,
+)
 from app.services.indicator_service import IndicatorService
 
 
@@ -68,19 +72,23 @@ class ReportDataService:
                 }
             )
 
+        manual_metrics = [row for row in metrics if row.source_type == "manual"]
+        simulated_metrics = [row for row in metrics if row.source_type == "simulated"]
         facts = {
             "money": self._money_fact(metrics, places),
-            "traffic": self._traffic_fact(metrics),
+            "traffic": self._traffic_fact(manual_metrics, simulated_metrics),
             "product": self._product_fact(outputs),
             "supplier": self._supplier_fact(blogger_id, metrics),
         }
         charts = {
-            "traffic_line": self._traffic_chart(metrics),
+            "traffic_line": self._traffic_chart(manual_metrics, simulated_metrics),
             "money_bar": self._money_chart(facts["money"]),
             "product_category_bar": self._product_chart(outputs),
             "supplier_top_bar": self._supplier_chart(facts["supplier"]),
         }
-        data_quality = self._data_quality(metrics, outputs, facts)
+        if manual_metrics and simulated_metrics:
+            charts["traffic_simulation_preview"] = self._simulation_traffic_chart(simulated_metrics)
+        data_quality = self._data_quality(metrics, outputs, places, facts)
         evidence = self._evidence(metrics, outputs, places, facts, indicator_facts)
         evidence_whitelist = sorted({row["ref"] for row in evidence})
         payload: dict[str, Any] = {
@@ -171,7 +179,7 @@ class ReportDataService:
                 "roi": _round(net / cost) if cost else None,
                 "source_refs": [f"metric:{row.id}" for row in paired],
             }
-        estimated = [row for row in places if row.est_benefit is not None and row.est_cost is not None]
+        estimated = trusted_estimate_places(self.db, places)
         if estimated:
             revenue = sum(row.est_benefit for row in estimated if row.est_benefit is not None)
             cost = sum(row.est_cost for row in estimated if row.est_cost is not None)
@@ -199,30 +207,54 @@ class ReportDataService:
             "source_refs": [],
         }
 
-    @staticmethod
-    def _traffic_fact(metrics: list[Metric]) -> dict[str, Any]:
-        if not metrics:
+    @classmethod
+    def _traffic_fact(
+        cls,
+        manual_metrics: list[Metric],
+        simulated_metrics: list[Metric],
+    ) -> dict[str, Any]:
+        if not manual_metrics and simulated_metrics:
+            return {
+                "status": "simulation_only",
+                "views": None,
+                "engagement_rate": None,
+                "trend": "unknown",
+                "source_refs": [],
+                "simulation_preview": cls._traffic_values(simulated_metrics),
+            }
+        if not manual_metrics:
             return {
                 "status": "data_insufficient",
                 "views": None,
                 "engagement_rate": None,
                 "trend": "unknown",
                 "source_refs": [],
+                "simulation_preview": None,
             }
-        views = sum(row.views for row in metrics)
-        engagement = sum(row.likes + row.comments + row.collects + row.shares for row in metrics)
-        if len(metrics) < 2:
+        actual = cls._traffic_values(manual_metrics)
+        if len(manual_metrics) < 2:
             trend = "unknown"
         else:
-            midpoint = len(metrics) // 2
-            old = sum(row.views for row in metrics[:midpoint])
-            new = sum(row.views for row in metrics[midpoint:])
+            midpoint = len(manual_metrics) // 2
+            old = sum(row.views for row in manual_metrics[:midpoint])
+            new = sum(row.views for row in manual_metrics[midpoint:])
             trend = "up" if new > old else "down" if new < old else "flat"
         return {
             "status": "actual",
+            "views": actual["views"],
+            "engagement_rate": actual["engagement_rate"],
+            "trend": trend,
+            "source_refs": actual["source_refs"],
+            "simulation_preview": cls._traffic_values(simulated_metrics) if simulated_metrics else None,
+        }
+
+    @staticmethod
+    def _traffic_values(metrics: list[Metric]) -> dict[str, Any]:
+        views = sum(row.views for row in metrics)
+        engagement = sum(row.likes + row.comments + row.collects + row.shares for row in metrics)
+        return {
             "views": float(views),
             "engagement_rate": _round(engagement / views) if views else None,
-            "trend": trend,
             "source_refs": [f"metric:{row.id}" for row in metrics],
         }
 
@@ -274,12 +306,28 @@ class ReportDataService:
             "source_refs": sorted({ref for row in places for ref in row["source_refs"]}),
         }
 
-    @staticmethod
-    def _traffic_chart(metrics: list[Metric]) -> dict[str, Any]:
+    @classmethod
+    def _traffic_chart(
+        cls,
+        manual_metrics: list[Metric],
+        simulated_metrics: list[Metric],
+    ) -> dict[str, Any]:
+        if manual_metrics:
+            metrics = manual_metrics
+            status = "actual"
+            title = "流量趋势"
+        elif simulated_metrics:
+            metrics = simulated_metrics
+            status = "simulation_only"
+            title = "模拟流量预览（不计入实际流量）"
+        else:
+            metrics = []
+            status = "data_insufficient"
+            title = "流量趋势"
         return {
             "type": "line",
-            "title": "流量趋势",
-            "status": "ok" if metrics else "data_insufficient",
+            "title": title,
+            "status": status,
             "points": [
                 {
                     "label": row.collected_at.isoformat(),
@@ -290,6 +338,12 @@ class ReportDataService:
                 for row in metrics
             ],
         }
+
+    @classmethod
+    def _simulation_traffic_chart(cls, metrics: list[Metric]) -> dict[str, Any]:
+        chart = cls._traffic_chart([], metrics)
+        chart["title"] = "模拟流量预览（不计入实际流量）"
+        return chart
 
     @staticmethod
     def _money_chart(fact: dict[str, Any]) -> dict[str, Any]:
@@ -345,21 +399,42 @@ class ReportDataService:
         self,
         metrics: list[Metric],
         outputs: list[Output],
+        places: list[Place],
         facts: dict[str, dict[str, Any]],
     ) -> dict[str, Any]:
         confirmed = self._confirmed(metrics)
         paired = [row for row in confirmed if row.actual_revenue is not None and row.actual_cost is not None]
+        simulated = [row for row in metrics if row.source_type == "simulated"]
+        provenance_by_place = place_commercial_provenance_map(places, self.db)
+        untrusted_places = [
+            row.id
+            for row in places
+            if row.est_cost is not None
+            and row.est_benefit is not None
+            and not {"est_cost", "est_benefit"} <= set(provenance_by_place.get(row.id, {}))
+        ]
         return {
             "metric_count": len(metrics),
             "manual_metric_count": sum(row.source_type == "manual" for row in metrics),
             "simulated_metric_count": sum(row.source_type == "simulated" for row in metrics),
+            "simulated_excluded_from_actual_traffic": len(simulated),
+            "simulated_excluded_metric_ids": [row.id for row in simulated],
+            "simulation_preview_available": bool(simulated),
+            "untrusted_commercial_place_ids": untrusted_places,
+            "untrusted_commercial_place_count": len(untrusted_places),
             "user_confirmed_metric_count": len(confirmed),
             "commercial_pair_count": len(paired),
             "output_count": len(outputs),
             "money_status": facts["money"]["status"],
             "supplier_status": facts["supplier"]["status"],
-            "missing": [category for category, value in facts.items() if value["status"] == "data_insufficient"],
+            "missing": [
+                category
+                for category, value in facts.items()
+                if value["status"] in {"data_insufficient", "simulation_only"}
+            ],
+            "traffic_status": facts["traffic"]["status"],
             "simulated_not_used_for_actual_money": True,
+            "simulated_not_used_for_actual_traffic": True,
             "null_preserved": True,
         }
 
@@ -408,6 +483,8 @@ class ReportDataService:
             int(ref.split(":", 1)[1]) for ref in facts["money"].get("source_refs", []) if str(ref).startswith("place:")
         }
         referenced_place_ids.update(int(row["place_id"]) for row in facts["supplier"].get("places", []))
+        referenced_places = [row for row in places if row.id in referenced_place_ids]
+        provenance_by_place = place_commercial_provenance_map(referenced_places)
         values.extend(
             {
                 "ref": f"place:{row.id}",
@@ -418,11 +495,14 @@ class ReportDataService:
                     "name": row.name,
                     "est_benefit": row.est_benefit,
                     "est_cost": row.est_cost,
+                    "source_type": row.source_type,
+                    "origin": row.origin,
+                    "credibility": row.credibility,
                     "manual_locked": row.manual_locked,
+                    "commercial_provenance": provenance_by_place.get(row.id, {}),
                 },
             }
-            for row in places
-            if row.id in referenced_place_ids
+            for row in referenced_places
         )
         values.extend(
             {

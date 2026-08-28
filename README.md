@@ -88,6 +88,10 @@
 
 报告数值和原生 SVG 图表点全部由后端从 Metric、Output、Place、OperationalIndicator 和不可变 Observation 确定性计算，Agent 只解释。money 状态严格区分 `actual`、`estimated`、`data_insufficient`；缺少用户确认收入/成本时不得声称实际赚钱或亏损。
 
+流量经营口径只使用 `source_type=manual` 的 Metric。`simulated` 不进入实际播放量、互动率、趋势或默认流量指标；只有模拟数据时报告返回 `simulation_only`，混合数据时模拟值仅进入单独的“模拟预览”图表，`data_quality` 记录排除数量和 ID。实际流量事实及图表的 `source_refs` 只引用 manual 行。
+
+地点估算与路线共用字段级商业来源策略：人工录入地点、可信来源且可信度不低于 3 的地点，或已应用 `PlaceCommercialRevision` 中由用户在 `place_overrides` 明确覆盖的字段才可参与计算。反馈确认不改写地点原始来源；Revision 保留字段、运行、确认时间和理由。低可信 generated 地点即使字段非 NULL 也不会直接进入估算，未确认字段仍保持不可信。该策略复用 0006 已有 Revision，无需新增迁移。
+
 ## 测试与质量门禁
 
 - 全量测试与覆盖率：
@@ -102,7 +106,7 @@
 
 - 性能验收：
 
-  `E:\Anaconda\envs\DL\python.exe -m pytest tests\test_performance.py tests\test_phase2_performance.py tests\test_phase3_performance.py tests\test_route_service.py::test_rank_1000_places_under_one_second_without_database_calls -q -s --basetemp E:\Guikesong\.pytest-performance`
+  `E:\Anaconda\envs\DL\python.exe -m pytest tests\test_performance.py tests\test_phase2_performance.py tests\test_phase3_performance.py tests\test_phase4_performance.py tests\test_route_service.py::test_rank_1000_places_under_one_second_without_database_calls -q -s --basetemp E:\Guikesong\.pytest-performance`
 
 - 默认离线、显式启用的真实集成 smoke：
 

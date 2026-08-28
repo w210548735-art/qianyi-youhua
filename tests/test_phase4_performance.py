@@ -3,12 +3,13 @@ from __future__ import annotations
 import time
 from datetime import date, datetime
 
-from app.models import Blogger, FeedbackRun, Metric, Output, Report, Schedule
+from app.models import Blogger, FeedbackRun, Metric, Output, Place, Report, Schedule
 from app.services.feedback_analysis_service import FeedbackAnalysisService
 from app.services.feedback_service import FeedbackService
 from app.services.indicator_service import IndicatorService
 from app.services.report_data_service import ReportDataService
 from app.services.report_service import ReportService
+from app.services.route_service import RouteService
 
 
 def _blogger(db) -> Blogger:
@@ -144,3 +145,41 @@ def test_1000_feedback_report_lists_under_500ms_and_crud_under_300ms(db) -> None
     assert len(feedback_rows) == len(report_rows) == 1000
     assert loaded.id == feedback_rows[0].id
     assert feedback_elapsed < 0.5 and report_elapsed < 0.5 and crud_elapsed < 0.3
+
+
+def test_1000_place_commercial_policy_is_batched_and_under_one_second(db) -> None:
+    blogger = _blogger(db)
+    places = [
+        Place(
+            blogger_id=blogger.id,
+            name=f"可信地点{index}",
+            category="美食",
+            tags_json="[]",
+            source_type="official",
+            credibility=4,
+            origin="seed",
+            manual_locked=False,
+            dedupe_key=f"phase4-policy-{index}",
+            est_cost=100,
+            est_benefit=200,
+            like_level=4,
+            fits_koc=True,
+            fits_shoot=True,
+        )
+        for index in range(1000)
+    ]
+    db.add_all(places)
+    db.commit()
+
+    started = time.perf_counter()
+    missing = RouteService.missing_commercial_data(places)
+    policy_elapsed = time.perf_counter() - started
+    started = time.perf_counter()
+    snapshot = ReportDataService(db).build_snapshot(blogger.id)
+    report_elapsed = time.perf_counter() - started
+
+    print(f"PHASE4_PLACE_POLICY_1000_SECONDS={policy_elapsed:.6f}")
+    print(f"PHASE4_PLACE_REPORT_1000_SECONDS={report_elapsed:.6f}")
+    assert missing == []
+    assert snapshot["facts"]["money"]["status"] == "estimated"
+    assert policy_elapsed < 1.0 and report_elapsed < 1.0

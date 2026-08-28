@@ -11,6 +11,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models import Asset, AssetPlace, DecisionLog, Output, OutputAsset, OutputPlace, Place
+from app.services.commercial_data_policy import (
+    COMMERCIAL_FIELDS,
+    TRUSTED_PLACE_SOURCE_TYPES,
+    place_commercial_provenance_map,
+)
 from app.services.context_service import ContextService
 from app.services.memory_service import MemoryService
 from app.services.output_agent import DeepSeekOutputAgent, OutputAgent
@@ -39,8 +44,8 @@ class RouteService:
         "fits_shoot": 0.10,
         "profile_fit": 0.10,
     }
-    trusted_sources = {"official", "government", "unesco", "ihchina", "trusted", "manual"}
-    commercial_fields = ("est_cost", "est_benefit", "like_level", "fits_koc", "fits_shoot")
+    trusted_sources = {*TRUSTED_PLACE_SOURCE_TYPES, "manual"}
+    commercial_fields = COMMERCIAL_FIELDS
 
     def __init__(
         self,
@@ -314,13 +319,20 @@ class RouteService:
     @classmethod
     def missing_commercial_data(cls, places: Sequence[Place]) -> list[dict[str, Any]]:
         missing: list[dict[str, Any]] = []
-        for row in places:
+        rows = list(places)
+        provenance_by_place = place_commercial_provenance_map(rows)
+        for row in rows:
             fields = [field for field in cls.commercial_fields if getattr(row, field) is None]
-            source_confirmed = row.origin == "manual" or (
-                row.source_type in cls.trusted_sources and row.credibility >= 3
-            )
-            if not source_confirmed:
+            provenance = provenance_by_place.get(row.id, {})
+            untrusted_nonnull = [
+                field
+                for field in cls.commercial_fields
+                if getattr(row, field) is not None and field not in provenance
+            ]
+            if untrusted_nonnull and not provenance:
                 fields.append("commercial_source")
+            elif untrusted_nonnull:
+                fields.extend(f"{field}_source" for field in untrusted_nonnull)
             if fields:
                 missing.append({"place_id": row.id, "name": row.name, "missing_fields": sorted(set(fields))})
         return missing
