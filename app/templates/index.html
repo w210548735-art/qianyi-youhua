@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>黔衣有话 · 第一、二阶段演示</title>
+  <title>黔衣有话 · 第一至三阶段演示</title>
   <style>
     body { font-family: sans-serif; max-width: 1100px; margin: 20px auto; line-height: 1.5; }
     section { border: 1px solid #999; padding: 14px; margin-bottom: 16px; }
@@ -23,7 +23,7 @@
   </style>
 </head>
 <body>
-  <h1>黔衣有话 · 第一、二阶段演示</h1>
+  <h1>黔衣有话 · 第一至三阶段演示</h1>
   <p>画像采集 → DeepSeek 建库 → 本地 BGE 向量化 → 混合检索 → 决策留痕 → Agent 记忆</p>
 
   <section>
@@ -243,7 +243,63 @@
     </div>
     <pre id="assessmentComparison">尚未执行历史比较。</pre>
     <pre id="assessmentEvidence">尚未加载证据。</pre>
-    <p>第三阶段功能尚未实现：脚本/分镜生成、路线推荐、发布、反馈回写和经营报告仅展示就绪判断，不会在本页模拟执行。</p>
+    <p>本阶段只展示后续功能是否就绪；经营报告、反馈学习和真实平台发布仍未实现。</p>
+  </section>
+
+  <section id="outputSection">
+    <h2>9. 内容产出与执行（第三阶段）</h2>
+    <p><strong>边界说明：</strong>发布和数据回收均为本地模拟/手工记录，不代表真实平台发布或平台取数；本阶段不会自动修改画像、资产或地点收益。</p>
+    <div class="row">
+      <label>采用体检 <select id="outputAssessmentSelect" disabled><option value="">请先完成体检</option></select></label>
+      <label>主题/指令 <input id="outputTopic" type="text" value="制作一条贵州文旅口播"></label>
+      <button id="generateScript" type="button" disabled>生成脚本</button>
+      <button id="generateStoryboard" type="button" disabled>基于当前脚本生成分镜</button>
+      <button id="retryOutput" type="button" disabled>重试失败任务</button>
+    </div>
+    <div class="row">
+      <label>输出历史 <select id="outputSelect" disabled><option value="">暂无输出</option></select></label>
+      <button id="loadOutputs" type="button" disabled>刷新输出历史</button>
+      <button id="loadOutputEvidence" type="button" disabled>查看资产/地点引用</button>
+      <button id="reviseOutput" type="button" disabled>版本化保存当前 JSON</button>
+      <button id="deleteOutput" type="button" disabled>软删除当前输出</button>
+    </div>
+    <label>当前输出 JSON（可编辑后另存新版本）<textarea id="outputEditor"></textarea></label>
+    <pre id="outputStatus">尚未生成内容。</pre>
+    <pre id="outputEvidence">尚未加载引用证据。</pre>
+
+    <h3>收益约束路线</h3>
+    <p>只接受已确认的非空成本、收益、喜爱度、KOC 与拍摄适配数据；缺失时明确返回地点和字段，不把 NULL 当成 0。</p>
+    <div class="row">
+      <input id="routePlaceIds" type="text" placeholder="地点 ID，逗号分隔；留空使用全部地点">
+      <button id="generateRoute" type="button" disabled>生成路线推荐</button>
+    </div>
+    <pre id="routeStatus">尚未生成路线。</pre>
+
+    <h3>排期、提醒与模拟发布</h3>
+    <div class="row">
+      <label>计划日期 <input id="schedulePlanDate" type="date"></label>
+      <label>平台 <input id="schedulePlatform" type="text" value="抖音"></label>
+      <label>内容类型 <select id="scheduleContentType"><option value="script">脚本</option><option value="storyboard">分镜</option><option value="route_rec">路线</option></select></label>
+      <button id="createSchedule" type="button" disabled>创建排期</button>
+      <button id="loadSchedules" type="button" disabled>刷新排期</button>
+      <select id="scheduleSelect" disabled><option value="">暂无排期</option></select>
+      <button id="scanReminders" type="button" disabled>扫描到期提醒</button>
+      <button id="simulatePublish" type="button" disabled>模拟发布</button>
+      <button id="cancelSchedule" type="button" disabled>取消排期</button>
+    </div>
+    <pre id="scheduleStatus">尚未创建排期。</pre>
+
+    <h3>手工/模拟原始指标回收</h3>
+    <div class="row">
+      <label>来源 <select id="metricSource"><option value="simulated">模拟</option><option value="manual">手工</option></select></label>
+      <label>播放 <input id="metricViews" type="number" min="0" value="0"></label>
+      <label>点赞 <input id="metricLikes" type="number" min="0" value="0"></label>
+      <label>评论 <input id="metricComments" type="number" min="0" value="0"></label>
+      <label>收藏 <input id="metricCollects" type="number" min="0" value="0"></label>
+      <button id="collectMetrics" type="button" disabled>回收原始指标</button>
+      <button id="loadMetrics" type="button" disabled>查看原始指标</button>
+    </div>
+    <pre id="metricStatus">尚未回收指标。</pre>
   </section>
 
 <script>
@@ -254,6 +310,9 @@ let editingAssetId = null;
 let editingPlaceId = null;
 let assessmentId = null;
 let assessmentRows = [];
+let outputId = null;
+let outputRows = [];
+let scheduleId = null;
 
 const $ = id => document.getElementById(id);
 const show = (id, value) => $(id).textContent =
@@ -283,6 +342,8 @@ const profileDependentControls = [
   'loadDecisions', 'loadDecisionErrors', 'saveAsset', 'searchPlaces', 'savePlace',
   'createTask', 'loadTasks', 'recallMemories', 'listMemories',
   'startAssessment', 'loadAssessmentHistory',
+  'loadOutputs', 'generateScript', 'generateRoute', 'loadSchedules', 'scanReminders',
+  'loadMetrics',
 ];
 const taskDependentControls = [
   'appendTaskMessage', 'checkpointTask', 'recoverTask', 'completeTask', 'loadTask',
@@ -291,10 +352,40 @@ const taskDependentControls = [
 function setProfileControls(enabled) {
   profileDependentControls.forEach(id => $(id).disabled = !enabled);
   setAssessmentProfileControls(enabled);
+  setOutputControls(enabled);
   if (!enabled) {
     taskDependentControls.forEach(id => $(id).disabled = true);
     $('taskSelect').disabled = true;
   }
+}
+
+function setOutputControls(enabled) {
+  ['outputAssessmentSelect', 'outputSelect', 'scheduleSelect'].forEach(id => $(id).disabled = !enabled);
+  $('generateScript').disabled = !enabled;
+  $('generateRoute').disabled = !enabled;
+  $('loadOutputs').disabled = !enabled;
+  $('loadSchedules').disabled = !enabled;
+  $('scanReminders').disabled = !enabled;
+  $('loadMetrics').disabled = !enabled;
+  ['generateStoryboard', 'retryOutput', 'loadOutputEvidence', 'reviseOutput', 'deleteOutput', 'createSchedule']
+    .forEach(id => $(id).disabled = !enabled || !outputId);
+  ['simulatePublish', 'cancelSchedule', 'collectMetrics'].forEach(
+    id => $(id).disabled = !enabled || !scheduleId,
+  );
+}
+
+function clearOutputDisplay() {
+  outputId = null;
+  outputRows = [];
+  scheduleId = null;
+  $('outputEditor').value = '';
+  $('outputStatus').textContent = '尚未生成内容。';
+  $('outputEvidence').textContent = '尚未加载引用证据。';
+  $('routeStatus').textContent = '尚未生成路线。';
+  $('scheduleStatus').textContent = '尚未创建排期。';
+  $('metricStatus').textContent = '尚未回收指标。';
+  $('outputSelect').replaceChildren(new Option('暂无输出', ''));
+  $('scheduleSelect').replaceChildren(new Option('暂无排期', ''));
 }
 
 function setAssessmentProfileControls(enabled) {
@@ -354,6 +445,7 @@ function setActiveProfile(profile) {
   $('bloggerId').textContent = bloggerId ? String(bloggerId) : '无';
   if (profile) fillProfileForm(profile);
   clearAssessmentDisplay();
+  clearOutputDisplay();
   setProfileControls(Boolean(bloggerId));
 }
 
@@ -855,6 +947,8 @@ function renderAssessmentHistory(rows) {
   fillAssessmentSelect('assessmentSelect', rows, assessmentId);
   fillAssessmentSelect('assessmentLeftSelect', rows, rows.length > 1 ? rows[1].id : rows[0]?.id);
   fillAssessmentSelect('assessmentRightSelect', rows, rows[0]?.id);
+  const succeeded = rows.filter(row => row.status === 'succeeded');
+  fillAssessmentSelect('outputAssessmentSelect', succeeded, assessmentId);
   const hasTwo = rows.length >= 2;
   $('compareAssessments').disabled = !bloggerId || !hasTwo;
 }
@@ -949,6 +1043,256 @@ $('compareAssessments').onclick = async () => {
   } catch (error) {
     show('assessmentComparison', errorText(error));
   }
+};
+
+const outputUrl = suffix => `/api/v1/bloggers/${bloggerId}/outputs${suffix || ''}`;
+
+function renderOutput(data) {
+  outputId = Number(data.id);
+  $('outputStatus').textContent = JSON.stringify({
+    id: data.id,
+    type: data.type,
+    status: data.status,
+    version: data.version,
+    assessment_id: data.assessment_id,
+    task_id: data.task_id,
+    error_code: data.error_code,
+    error_message: data.error_message,
+    simulated_boundary: '未执行真实平台发布',
+  }, null, 2);
+  $('outputEditor').value = JSON.stringify(data.content_json || {}, null, 2);
+  $('retryOutput').disabled = data.status !== 'failed';
+  $('generateStoryboard').disabled = data.type !== 'script' || data.status !== 'succeeded';
+  setOutputControls(Boolean(bloggerId));
+  $('retryOutput').disabled = data.status !== 'failed';
+  $('generateStoryboard').disabled = data.type !== 'script' || data.status !== 'succeeded';
+}
+
+async function refreshOutputs(preferredId = outputId) {
+  if (!bloggerId) return [];
+  const rows = await api(`${outputUrl()}?page=1&page_size=100`);
+  outputRows = rows;
+  const select = $('outputSelect');
+  select.replaceChildren();
+  if (!rows.length) select.append(new Option('暂无输出', ''));
+  rows.forEach(row => select.append(new Option(`#${row.id} ${row.type} v${row.version} ${row.status}`, row.id)));
+  const selected = rows.find(row => Number(row.id) === Number(preferredId)) || rows[0];
+  if (selected) {
+    select.value = String(selected.id);
+    outputId = Number(selected.id);
+  }
+  setOutputControls(Boolean(bloggerId));
+  return rows;
+}
+
+async function loadOutput(id = outputId) {
+  if (!bloggerId || !id) return;
+  try { renderOutput(await api(outputUrl(`/${id}`))); }
+  catch (error) { show('outputStatus', errorText(error)); }
+}
+
+$('generateScript').onclick = async () => {
+  const selectedAssessment = Number($('outputAssessmentSelect').value || assessmentId);
+  if (!bloggerId || !selectedAssessment) {
+    show('outputStatus', '体检未就绪：请先完成三库体检并选择成功记录。');
+    return;
+  }
+  show('outputStatus', '脚本任务执行中……');
+  try {
+    const data = await api(`/api/v1/bloggers/${bloggerId}/outputs/generate/script`, {
+      method: 'POST',
+      body: JSON.stringify({
+        assessment_id: selectedAssessment,
+        idempotency_key: `script-${bloggerId}-${Date.now()}`,
+        topic: $('outputTopic').value,
+        user_instruction: $('outputTopic').value,
+      }),
+    });
+    renderOutput(data);
+    await refreshOutputs(data.id);
+  } catch (error) { show('outputStatus', errorText(error)); }
+};
+
+$('generateStoryboard').onclick = async () => {
+  const current = outputRows.find(row => Number(row.id) === Number(outputId));
+  if (!current || current.type !== 'script') {
+    show('outputStatus', '必须选择一个成功脚本版本后才能生成分镜。');
+    return;
+  }
+  try {
+    const data = await api(`/api/v1/bloggers/${bloggerId}/outputs/generate/storyboard`, {
+      method: 'POST',
+      body: JSON.stringify({
+        assessment_id: current.assessment_id,
+        script_output_id: current.id,
+        idempotency_key: `storyboard-${bloggerId}-${Date.now()}`,
+        user_instruction: $('outputTopic').value,
+      }),
+    });
+    renderOutput(data);
+    await refreshOutputs(data.id);
+  } catch (error) { show('outputStatus', errorText(error)); }
+};
+
+$('generateRoute').onclick = async () => {
+  const selectedAssessment = Number($('outputAssessmentSelect').value || assessmentId);
+  if (!bloggerId || !selectedAssessment) {
+    show('routeStatus', '体检未就绪：请先完成体检。');
+    return;
+  }
+  const placeIds = csv($('routePlaceIds').value).map(Number).filter(Number.isInteger);
+  try {
+    const data = await api(`/api/v1/bloggers/${bloggerId}/outputs/generate/route`, {
+      method: 'POST',
+      body: JSON.stringify({
+        assessment_id: selectedAssessment,
+        idempotency_key: `route-${bloggerId}-${Date.now()}`,
+        place_ids: placeIds,
+        user_instruction: $('outputTopic').value,
+      }),
+    });
+    renderOutput(data);
+    show('routeStatus', data.content_json);
+    await refreshOutputs(data.id);
+  } catch (error) {
+    show('routeStatus', `商业字段缺失或路线失败：${error.message}`);
+  }
+};
+
+$('loadOutputs').onclick = async () => {
+  try { const rows = await refreshOutputs(); if (rows.length) await loadOutput(rows[0].id); }
+  catch (error) { show('outputStatus', errorText(error)); }
+};
+
+$('outputSelect').onchange = async event => {
+  outputId = Number(event.target.value) || null;
+  await loadOutput(outputId);
+};
+
+$('loadOutputEvidence').onclick = async () => {
+  if (!outputId) return;
+  try { show('outputEvidence', await api(`/api/v1/bloggers/${bloggerId}/outputs/${outputId}/evidence`)); }
+  catch (error) { show('outputEvidence', errorText(error)); }
+};
+
+$('retryOutput').onclick = async () => {
+  if (!outputId) return;
+  try { renderOutput(await api(`/api/v1/bloggers/${bloggerId}/outputs/${outputId}/retry`, {method: 'POST'})); }
+  catch (error) { show('outputStatus', errorText(error)); }
+};
+
+$('reviseOutput').onclick = async () => {
+  if (!outputId) return;
+  try {
+    const content = JSON.parse($('outputEditor').value);
+    const data = await api(`/api/v1/bloggers/${bloggerId}/outputs/${outputId}/revisions`, {
+      method: 'POST', body: JSON.stringify({content_json: content}),
+    });
+    renderOutput(data);
+    await refreshOutputs(data.id);
+  } catch (error) { show('outputStatus', `版本化编辑失败：${error.message}`); }
+};
+
+$('deleteOutput').onclick = async () => {
+  if (!outputId || !confirm('确认软删除当前输出？已排期的旧版本和历史引用仍会保留。')) return;
+  try {
+    show('outputStatus', await api(`/api/v1/bloggers/${bloggerId}/outputs/${outputId}`, {method: 'DELETE'}));
+    outputId = null;
+    await refreshOutputs();
+  } catch (error) { show('outputStatus', errorText(error)); }
+};
+
+async function refreshSchedules(preferredId = scheduleId) {
+  if (!bloggerId) return [];
+  const rows = await api(`/api/v1/bloggers/${bloggerId}/schedules?page=1&page_size=100`);
+  const select = $('scheduleSelect');
+  select.replaceChildren();
+  if (!rows.length) select.append(new Option('暂无排期', ''));
+  rows.forEach(row => select.append(new Option(`#${row.id} ${row.plan_date} ${row.status} ${row.title}`, row.id)));
+  const selected = rows.find(row => Number(row.id) === Number(preferredId)) || rows[0];
+  scheduleId = selected ? Number(selected.id) : null;
+  if (selected) select.value = String(selected.id);
+  show('scheduleStatus', rows);
+  setOutputControls(Boolean(bloggerId));
+  return rows;
+}
+
+$('createSchedule').onclick = async () => {
+  if (!outputId) return;
+  const current = outputRows.find(row => Number(row.id) === Number(outputId));
+  try {
+    const data = await api(`/api/v1/bloggers/${bloggerId}/schedules`, {
+      method: 'POST',
+      body: JSON.stringify({
+        output_id: outputId,
+        plan_date: $('schedulePlanDate').value,
+        platform: $('schedulePlatform').value,
+        content_type: $('scheduleContentType').value,
+        title: current?.title || '内容排期',
+      }),
+    });
+    scheduleId = data.id;
+    await refreshSchedules(data.id);
+  } catch (error) { show('scheduleStatus', errorText(error)); }
+};
+
+$('loadSchedules').onclick = async () => {
+  try { await refreshSchedules(); } catch (error) { show('scheduleStatus', errorText(error)); }
+};
+
+$('scheduleSelect').onchange = event => {
+  scheduleId = Number(event.target.value) || null;
+  setOutputControls(Boolean(bloggerId));
+};
+
+$('scanReminders').onclick = async () => {
+  try {
+    const selectedDate = $('schedulePlanDate').value;
+    const query = selectedDate ? `?on_date=${encodeURIComponent(selectedDate)}` : '';
+    show('scheduleStatus', await api(`/api/v1/bloggers/${bloggerId}/schedules/reminders/scan${query}`, {method: 'POST'}));
+  } catch (error) { show('scheduleStatus', errorText(error)); }
+};
+
+$('simulatePublish').onclick = async () => {
+  if (!scheduleId) return;
+  try {
+    const data = await api(`/api/v1/bloggers/${bloggerId}/schedules/${scheduleId}/publish`, {
+      method: 'POST', body: JSON.stringify({idempotency_key: `publish-${scheduleId}-${Date.now()}`}),
+    });
+    show('scheduleStatus', data);
+    await refreshSchedules(scheduleId);
+  } catch (error) { show('scheduleStatus', errorText(error)); }
+};
+
+$('cancelSchedule').onclick = async () => {
+  if (!scheduleId) return;
+  try {
+    show('scheduleStatus', await api(`/api/v1/bloggers/${bloggerId}/schedules/${scheduleId}/cancel`, {method: 'POST'}));
+    await refreshSchedules(scheduleId);
+  } catch (error) { show('scheduleStatus', errorText(error)); }
+};
+
+$('collectMetrics').onclick = async () => {
+  if (!scheduleId) return;
+  const source = $('metricSource').value;
+  const key = `collect-${scheduleId}-${Date.now()}`;
+  const metric = {
+    idempotency_key: `metric-${scheduleId}-${Date.now()}`,
+    source_type: source,
+    views: Number($('metricViews').value), likes: Number($('metricLikes').value),
+    comments: Number($('metricComments').value), collects: Number($('metricCollects').value),
+  };
+  try {
+    show('metricStatus', await api(`/api/v1/bloggers/${bloggerId}/schedules/${scheduleId}/collections`, {
+      method: 'POST', body: JSON.stringify({idempotency_key: key, source_type: source, metrics: metric}),
+    }));
+    await refreshSchedules(scheduleId);
+  } catch (error) { show('metricStatus', errorText(error)); }
+};
+
+$('loadMetrics').onclick = async () => {
+  try { show('metricStatus', await api(`/api/v1/bloggers/${bloggerId}/metrics`)); }
+  catch (error) { show('metricStatus', errorText(error)); }
 };
 
 setProfileControls(false);

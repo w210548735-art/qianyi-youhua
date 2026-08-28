@@ -8,11 +8,13 @@ from fastapi.templating import Jinja2Templates
 
 from app.api.assessment_routes import router as assessment_router
 from app.api.memory_routes import router as memory_router
+from app.api.output_routes import router as output_router
 from app.api.place_routes import router as place_router
 from app.api.routes import router
 from app.core.config import ROOT_DIR, settings
 from app.db.session import Base, SessionLocal, engine
 from app.services.assessment_service import AssessmentService
+from app.services.output_service import OutputService
 
 
 @asynccontextmanager
@@ -20,6 +22,7 @@ async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
         AssessmentService(db).recover_unfinished_assessments()
+        OutputService(db).recover_unfinished_outputs()
     yield
 
 
@@ -28,6 +31,7 @@ app.include_router(router)
 app.include_router(memory_router)
 app.include_router(place_router)
 app.include_router(assessment_router)
+app.include_router(output_router)
 templates = Jinja2Templates(directory=str(ROOT_DIR / "app" / "templates"))
 
 

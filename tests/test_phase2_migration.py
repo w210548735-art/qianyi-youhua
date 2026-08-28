@@ -40,7 +40,7 @@ def migration_config(db_path: Path) -> Config:
     return config
 
 
-def upgrade(db_path: Path, revision: str = "head") -> None:
+def upgrade(db_path: Path, revision: str = "0003_phase2_assessment") -> None:
     command.upgrade(migration_config(db_path), revision)
 
 

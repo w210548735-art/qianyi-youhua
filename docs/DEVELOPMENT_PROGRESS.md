@@ -1,8 +1,32 @@
 # 黔衣有话开发进度
 
-更新时间：2026-08-28
-当前分支：`develop/phase-2`
-阶段状态：`第二阶段知识库体检与指标评估已交付`
+更新时间：2026-08-29
+当前分支：`develop/phase-3-output`
+阶段状态：`第三阶段实现门禁已通过，等待独立验收；禁止启动第四阶段`
+
+## 2026-08-29 第三阶段实现里程碑
+
+- 新增 `Output`、`OutputAsset`、`OutputPlace`、`AssetPlace`、`Schedule`、`PublishEvent`、`ReminderEvent`、`Metric`、`CollectionJob` 及显式迁移 `0004_phase3_output`；输出人工编辑创建不可变新版本，旧版本和排期引用不被覆盖。
+- `OutputAgent` 提供脚本、分镜、排期和路线说明能力；生产使用 `deepseek-v4-flash`，离线使用 Fake。合法JSON但字段不完整同样进入唯一一次格式修复，第二次仍失败则返回 `OUTPUT_INVALID_JSON`。
+- `OutputValidationService` 拒绝快照外、跨博主、软删除、低可信无来源知识引用；脚本与分镜结构、画像风格、平台、来源和地点均由后端复核。
+- `OutputService` 已接入冻结快照、固定四段上下文、TaskSession/消息/Checkpoint/final_summary、DecisionLog、OutputAsset/OutputPlace 和不自动激活的决策摘要候选；支持幂等、失败重试、中断恢复、快照冲突和软删除。
+- 路线顺序由后端按净收益、喜爱度、KOC、拍摄适配和画像契合度确定性计算；商业字段为 `NULL` 或来源不可信时返回具体缺失地点/字段，Agent 无权改变公式、输入或顺序。
+- 排期按画像日更/周更/月更约束，提醒使用可注入时钟且同日去重；发布仅为本地模拟并写 PublishEvent；手工/模拟回收只落非负原始 Metric，不执行反馈判断或资产更新。
+- 输出、排期、提醒、模拟发布、回收、证据回查 API 和 Jinja2/原生JavaScript演示区均已接通；跨博主统一404，页面明确不代表真实平台发布/取数。
+- 迁移专项验证 `base → 0004`、`0003 → 0004` 数据保留、downgrade/upgrade 和 runtime 预建兼容；一期、二期测试继续固定到各自 revision。
+- 在全新临时库升级到head后执行 `alembic check`：`No new upgrade operations detected`，ORM与0004无结构漂移。
+- 最终工作树全量回归：`152 passed, 6 skipped, 24 warnings in 258.34s`。带覆盖率全量门禁：同为152通过/6跳过，耗时 `281.15s`，`app/services` 聚合覆盖率 `80.92%`，且 `--cov-fail-under=80` 通过；默认跳过项仅为需显式开关的真实集成。
+- Ruff：`All checks passed!`；Mypy：`Success: no issues found in 39 source files`。
+- 性能实测：1000条输出查询 `0.025130s`，1000条排期查询 `0.012816s`，输出详情 `0.010510s`，排期创建 `0.020784s`，1000地点路线排序 `0.013698s`。
+- 真实集成：RTX 4060 CUDA 上 BGE 512维通过；DeepSeek v4-flash 真实请求和一次结构修复通过；合计 `2 passed in 43.56s`。
+- 安全扫描未发现跟踪的Key、数据库、模型权重、任务日志或pytest临时目录；`.tmp_phase3*/` 已加入忽略。最终提交、SSH推送和独立验收摘要尚待执行。
+
+## 2026-08-29 第三阶段开工
+
+- 第二阶段 `develop/phase-2@6783d146` 已通过独立门禁并保持远端0/0。
+- 已从该提交创建并通过SSH推送 `develop/phase-3-output`，Alembic起始head为 `0003_phase2_assessment`。
+- 第三阶段范围限定为脚本、分镜、收益约束路线、排期、提醒、模拟发布、手工/模拟回收和证据链，不实现反馈学习、经营报告或真实平台发布。
+- 开工基线为115项测试可收集；详细矩阵见 `docs/产品文档/第三阶段_开发任务清单_v1.0.md`。
 
 ## 2026-08-28 第二阶段实现里程碑
 

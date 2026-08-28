@@ -42,7 +42,7 @@ def test_phase2_demo_page_contains_assessment_controls_and_routes():
         "改进建议",
         "历史体检",
         "证据详情",
-        "尚未实现",
+        "仍未实现",
     ):
         assert text in page.text
 
@@ -86,8 +86,8 @@ def test_phase2_demo_page_contains_assessment_controls_and_routes():
     }
 
 
-def test_phase2_demo_page_uses_assessment_api_and_blocks_phase_three_claims():
-    """页面脚本应调用第二阶段接口，并明确后续产出尚未实现。"""
+def test_phase2_demo_page_keeps_assessment_api_when_phase_three_is_enabled():
+    """进入第三阶段后，页面仍保留第二阶段接口并明确下一阶段边界。"""
     with TestClient(app) as client:
         page = client.get("/")
 
@@ -99,7 +99,8 @@ def test_phase2_demo_page_uses_assessment_api_and_blocks_phase_three_claims():
         "/assessments/compare",
     ):
         assert route in html
-    assert "第三阶段功能尚未实现" in html
+    assert 'id="generateScript"' in html
+    assert "经营报告、反馈学习和真实平台发布仍未实现" in html
 
 
 def test_phase2_profile_switch_clears_all_assessment_displays():

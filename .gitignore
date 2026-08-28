@@ -24,6 +24,7 @@ logs/
 .pytest-tmp/
 .pytest-*/
 .pytest_*/
+.tmp_phase3*/
 
 # 编辑器与系统文件
 .idea/

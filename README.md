@@ -4,9 +4,9 @@
 
 ## 当前阶段目标
 
-第一阶段已完成“画像采集 → 可信种子建库 → DeepSeek 生成 → 本地中文向量化 → 混合检索 → 决策留痕 → 长短期 Agent 记忆”的基础闭环。第二阶段在此基础上实现三库体检、Agent 动态指标、真实证据约束评分、功能就绪判断及不可覆盖的历史比较。
+第一阶段已完成“画像采集 → 可信种子建库 → DeepSeek 生成 → 本地中文向量化 → 混合检索 → 决策留痕 → 长短期 Agent 记忆”的基础闭环。第二阶段实现三库体检、Agent 动态指标、证据约束评分、功能就绪判断及不可覆盖的历史比较。第三阶段实现脚本、分镜、收益约束路线、内容排期、提醒、模拟发布和手工/模拟原始指标回收。
 
-第二阶段只判断脚本、路线、发布、反馈和经营报告所需输入是否就绪，不实现这些后续功能。
+第三阶段不实现反馈学习、画像/资产/地点自动调整、经营报告、真实平台 OAuth、真实发布或平台取数。演示页中的发布与模拟指标始终带有明确的模拟来源标识。
 
 ## 技术基线
 
@@ -43,7 +43,7 @@
 - 博主采用可审计软删除。关联资产、地点、任务、决策和记忆历史继续保留，但所有默认业务入口都拒绝访问已删除博主；第一阶段不开放恢复 API。
 - 地点的 `est_cost`、`est_benefit`、`like_level`、`fits_koc`、`fits_shoot` 只有在用户明确提供或可信来源明确记载时才赋值，未知值在数据库和 API 中均保持 `null`。
 - 资产检索支持 `q`、`lib_type`、`category`、独立 `tags`、`source_type`、`source`、`min_credibility`、`max_credibility`、`page`、`page_size` 组合使用。
-- 当前 Alembic head 为 `0003_phase2_assessment`；一期迁移测试固定验证到 `0002_phase1_closure`，二期迁移测试验证空库 `base → 0003`、已有一期库 `0002 → 0003` 及 downgrade/upgrade 往返。
+- 当前 Alembic head 为 `0004_phase3_output`；一期测试固定验证 `0002`，二期测试固定验证 `0003`，三期迁移测试验证空库 `base → 0004`、已有二期库 `0003 → 0004`、数据保留及 downgrade/upgrade 往返。
 
 ## 第二阶段体检 API
 
@@ -58,6 +58,22 @@
 
 体检快照只保存向量维度和摘要哈希，原始 512 维向量仅在本地 NumPy 批量分析期间使用，不进入数据库 JSON、演示 API 或 DeepSeek 上下文。服务启动时会把中断中的体检恢复为可安全重试状态。
 
+## 第三阶段内容与执行 API
+
+- `POST /api/v1/bloggers/{blogger_id}/outputs/generate/script|storyboard|route`：生成脚本、分镜或收益约束路线。
+- `GET /api/v1/bloggers/{blogger_id}/outputs` 与 `GET /outputs/{output_id}`：查询不可覆盖的输出历史和详情。
+- `POST /outputs/{output_id}/revisions`、`DELETE /outputs/{output_id}`：另存新版本与软删除。
+- `GET /outputs/{output_id}/evidence`：回查 `OutputAsset`、`OutputPlace` 和 `AssetPlace` 证据关系。
+- `POST/GET/PUT /api/v1/bloggers/{blogger_id}/schedules`：创建、查询和编辑排期；取消使用 `/schedules/{schedule_id}/cancel`。
+- `POST /schedules/reminders/scan`：手工触发到期扫描；同排期同日最多一条提醒。
+- `POST /schedules/{schedule_id}/publish`：本地模拟发布，写 `PublishEvent`，不调用真实平台。
+- `POST /schedules/{schedule_id}/collections` 与 `POST /collections/{job_id}/retry`：手工/模拟原始指标回收及安全重试。
+- `GET /api/v1/bloggers/{blogger_id}/metrics`：查询原始指标，不在本阶段做反馈判断。
+
+路线的 `est_cost`、`est_benefit`、`like_level`、`fits_koc`、`fits_shoot` 任一为 `NULL`，或商业数据没有用户明确提供/可信来源确认时，返回 `ROUTE_COMMERCIAL_DATA_INCOMPLETE` 及具体地点/字段。排序公式由后端复算并写入 `DecisionLog`，Agent 只能生成说明。
+
+第三阶段稳定错误码还包括：`ASSESSMENT_NOT_READY`、`OUTPUT_NOT_FOUND`、`OUTPUT_ALREADY_RUNNING`、`OUTPUT_INVALID_JSON`、`OUTPUT_EVIDENCE_INVALID`、`OUTPUT_SNAPSHOT_CHANGED`、`STORYBOARD_SCRIPT_REQUIRED`、`SCHEDULE_INVALID_STATE`、`PUBLISH_DUPLICATE`、`COLLECTION_INVALID_STATE`、`COLLECTION_FAILED`。跨博主访问统一 404。
+
 ## 测试与质量门禁
 
 - 全量测试与覆盖率：
@@ -66,13 +82,13 @@
 
 - 静态检查：
 
-  `E:\Anaconda\envs\DL\python.exe -m ruff check app tests migrations`
+  `E:\Anaconda\envs\DL\python.exe -m ruff check app tests`
 
   `E:\Anaconda\envs\DL\python.exe -m mypy app`
 
 - 性能验收：
 
-  `E:\Anaconda\envs\DL\python.exe -m pytest tests\test_performance.py tests\test_phase2_performance.py -q -s --cov=app\services --basetemp E:\Guikesong\.pytest-performance`
+  `E:\Anaconda\envs\DL\python.exe -m pytest tests\test_performance.py tests\test_phase2_performance.py tests\test_phase3_performance.py tests\test_route_service.py::test_rank_1000_places_under_one_second_without_database_calls -q -s --basetemp E:\Guikesong\.pytest-performance`
 
 - 默认离线、显式启用的真实集成 smoke：
 
@@ -83,6 +99,8 @@
   `set RUN_PHASE2_REAL_BGE=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_phase2_real_integration.py::test_phase2_real_bge_cuda_and_dimension -q -rs`
 
   `set RUN_PHASE2_REAL_DEEPSEEK=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_phase2_real_integration.py::test_phase2_real_deepseek_assessment_structure -q -rs`
+
+  `set RUN_PHASE3_REAL_INTEGRATIONS=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_phase3_real_integration.py -q -rs`
 
   未设置开关时不会加载真实模型或调用外部 API。真实 DeepSeek smoke 仅在本地密钥和网络均可用时执行，测试不会输出密钥。
 

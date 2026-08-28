@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -45,6 +46,8 @@ class Blogger(Base):
     assets: Mapped[list[Asset]] = relationship(back_populates="blogger", cascade="all, delete-orphan")
     places: Mapped[list[Place]] = relationship(back_populates="blogger", cascade="all, delete-orphan")
     assessments: Mapped[list[Assessment]] = relationship(back_populates="blogger", cascade="all, delete-orphan")
+    outputs: Mapped[list[Output]] = relationship(back_populates="blogger", cascade="all, delete-orphan")
+    schedules: Mapped[list[Schedule]] = relationship(back_populates="blogger", cascade="all, delete-orphan")
 
 
 class ConversationSession(Base):
@@ -142,6 +145,8 @@ class Asset(Base):
         back_populates="asset", cascade="all, delete-orphan", uselist=False
     )
     sources: Mapped[list[AssetSource]] = relationship(cascade="all, delete-orphan")
+    output_assets: Mapped[list[OutputAsset]] = relationship(back_populates="asset")
+    asset_places: Mapped[list[AssetPlace]] = relationship(back_populates="asset")
 
 
 class AssetSource(Base):
@@ -199,6 +204,8 @@ class Place(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     blogger: Mapped[Blogger] = relationship(back_populates="places")
+    output_places: Mapped[list[OutputPlace]] = relationship(back_populates="place")
+    asset_places: Mapped[list[AssetPlace]] = relationship(back_populates="place")
 
 
 class Assessment(Base):
@@ -255,6 +262,7 @@ class Assessment(Base):
     evidences: Mapped[list[AssessmentEvidence]] = relationship(
         back_populates="assessment", cascade="all, delete-orphan", order_by="AssessmentEvidence.id"
     )
+    outputs: Mapped[list[Output]] = relationship(back_populates="assessment")
 
 
 class AssessmentIndicator(Base):
@@ -379,6 +387,7 @@ class TaskSession(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     assessments: Mapped[list[Assessment]] = relationship(back_populates="task")
+    outputs: Mapped[list[Output]] = relationship(back_populates="task")
 
 
 class SessionMessage(Base):
@@ -414,3 +423,308 @@ class TaskArtifact(Base):
     relative_path: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class Output(Base):
+    """脚本、分镜和路线推荐的不可变版本化输出。"""
+
+    __tablename__ = "output"
+    __table_args__ = (
+        CheckConstraint(
+            "type IN ('script', 'storyboard', 'route_rec')",
+            name="ck_output_type",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'succeeded', 'failed', 'draft', 'deleted')",
+            name="ck_output_status",
+        ),
+        CheckConstraint("version > 0", name="ck_output_version"),
+        UniqueConstraint(
+            "blogger_id", "parent_output_id", "version", name="uq_output_version"
+        ),
+        UniqueConstraint(
+            "blogger_id", "idempotency_key", name="uq_output_blogger_idempotency"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    blogger_id: Mapped[int] = mapped_column(
+        ForeignKey("blogger.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("task_session.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    idempotency_key: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    content_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
+    assessment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("assessment.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    parent_output_id: Mapped[int | None] = mapped_column(
+        ForeignKey("output.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    manual_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    decision_id: Mapped[int | None] = mapped_column(
+        ForeignKey("decision_log.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    prompt_version: Mapped[str] = mapped_column(String(50), nullable=False, default="phase3-v1")
+    model_name: Mapped[str] = mapped_column(String(200), nullable=False, default="deepseek-v4-flash")
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    blogger: Mapped[Blogger] = relationship(back_populates="outputs")
+    task: Mapped[TaskSession | None] = relationship(back_populates="outputs")
+    assessment: Mapped[Assessment | None] = relationship(back_populates="outputs")
+    decision: Mapped[DecisionLog | None] = relationship()
+    parent_output: Mapped[Output | None] = relationship(
+        remote_side="Output.id", back_populates="child_outputs"
+    )
+    child_outputs: Mapped[list[Output]] = relationship(back_populates="parent_output")
+    assets: Mapped[list[OutputAsset]] = relationship(
+        back_populates="output", cascade="all, delete-orphan", order_by="OutputAsset.id"
+    )
+    places: Mapped[list[OutputPlace]] = relationship(
+        back_populates="output", cascade="all, delete-orphan", order_by="OutputPlace.sequence"
+    )
+    schedules: Mapped[list[Schedule]] = relationship(back_populates="output")
+    metrics: Mapped[list[Metric]] = relationship(back_populates="output")
+
+
+class OutputAsset(Base):
+    """输出中引用的知识、素材或算法资产。"""
+
+    __tablename__ = "output_asset"
+    __table_args__ = (
+        UniqueConstraint("output_id", "asset_id", "usage_type", name="uq_output_asset_usage"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    output_id: Mapped[int] = mapped_column(
+        ForeignKey("output.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    asset_id: Mapped[int] = mapped_column(
+        ForeignKey("asset.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    usage_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    claim: Mapped[str] = mapped_column(Text, nullable=False)
+
+    output: Mapped[Output] = relationship(back_populates="assets")
+    asset: Mapped[Asset] = relationship(back_populates="output_assets")
+
+
+class OutputPlace(Base):
+    """输出中显式引用的地点及其顺序。"""
+
+    __tablename__ = "output_place"
+    __table_args__ = (
+        CheckConstraint("sequence > 0", name="ck_output_place_sequence"),
+        UniqueConstraint(
+            "output_id", "place_id", "role", "sequence", name="uq_output_place_reference"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    output_id: Mapped[int] = mapped_column(
+        ForeignKey("output.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    place_id: Mapped[int] = mapped_column(
+        ForeignKey("place.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    role: Mapped[str] = mapped_column(String(50), nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    claim: Mapped[str] = mapped_column(Text, nullable=False)
+
+    output: Mapped[Output] = relationship(back_populates="places")
+    place: Mapped[Place] = relationship(back_populates="output_places")
+
+
+class AssetPlace(Base):
+    """知识/素材资产与地点的可追溯关系。"""
+
+    __tablename__ = "asset_place"
+    __table_args__ = (
+        UniqueConstraint(
+            "asset_id", "place_id", "relation_type", name="uq_asset_place_relation"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    asset_id: Mapped[int] = mapped_column(
+        ForeignKey("asset.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    place_id: Mapped[int] = mapped_column(
+        ForeignKey("place.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    relation_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    asset: Mapped[Asset] = relationship(back_populates="asset_places")
+    place: Mapped[Place] = relationship(back_populates="asset_places")
+
+
+class Schedule(Base):
+    """内容排期；取消状态承担软删除语义，历史发布记录不删除。"""
+
+    __tablename__ = "schedule"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'published', 'collected', 'cancelled')",
+            name="ck_schedule_status",
+        ),
+        UniqueConstraint(
+            "blogger_id", "output_id", "plan_date", "platform", "content_type",
+            name="uq_schedule_output_date_channel",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    blogger_id: Mapped[int] = mapped_column(
+        ForeignKey("blogger.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    output_id: Mapped[int] = mapped_column(
+        ForeignKey("output.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    plan_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    platform: Mapped[str] = mapped_column(String(50), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
+    publish_time: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    blogger: Mapped[Blogger] = relationship(back_populates="schedules")
+    output: Mapped[Output] = relationship(back_populates="schedules")
+    publish_events: Mapped[list[PublishEvent]] = relationship(
+        back_populates="schedule", cascade="all, delete-orphan", order_by="PublishEvent.id"
+    )
+    reminder_events: Mapped[list[ReminderEvent]] = relationship(
+        back_populates="schedule", cascade="all, delete-orphan", order_by="ReminderEvent.id"
+    )
+    metrics: Mapped[list[Metric]] = relationship(
+        back_populates="schedule", cascade="all, delete-orphan", order_by="Metric.id"
+    )
+    collection_jobs: Mapped[list[CollectionJob]] = relationship(
+        back_populates="schedule", cascade="all, delete-orphan", order_by="CollectionJob.id"
+    )
+
+
+class PublishEvent(Base):
+    """模拟发布事件；不代表真实平台发布。"""
+
+    __tablename__ = "publish_event"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'published', 'failed', 'cancelled')",
+            name="ck_publish_event_status",
+        ),
+        UniqueConstraint("schedule_id", "idempotency_key", name="uq_publish_schedule_idempotency"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(
+        ForeignKey("schedule.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime)
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    schedule: Mapped[Schedule] = relationship(back_populates="publish_events")
+
+
+class ReminderEvent(Base):
+    """排期提醒事件；同一排期同一天通过唯一约束去重。"""
+
+    __tablename__ = "reminder_event"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'sent', 'failed', 'cancelled')",
+            name="ck_reminder_event_status",
+        ),
+        UniqueConstraint("schedule_id", "reminder_date", name="uq_reminder_schedule_date"),
+        UniqueConstraint("dedupe_key", name="uq_reminder_dedupe_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(
+        ForeignKey("schedule.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    reminder_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
+    dedupe_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    schedule: Mapped[Schedule] = relationship(back_populates="reminder_events")
+
+
+class Metric(Base):
+    """手工或模拟回收的原始指标，不在本阶段做反馈判断。"""
+
+    __tablename__ = "metric"
+    __table_args__ = (
+        CheckConstraint(
+            "source_type IN ('manual', 'simulated', 'platform')",
+            name="ck_metric_source_type",
+        ),
+        CheckConstraint("views >= 0", name="ck_metric_views_nonnegative"),
+        CheckConstraint("likes >= 0", name="ck_metric_likes_nonnegative"),
+        CheckConstraint("comments >= 0", name="ck_metric_comments_nonnegative"),
+        CheckConstraint("collects >= 0", name="ck_metric_collects_nonnegative"),
+        UniqueConstraint("idempotency_key", name="uq_metric_idempotency"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    output_id: Mapped[int] = mapped_column(
+        ForeignKey("output.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    schedule_id: Mapped[int] = mapped_column(
+        ForeignKey("schedule.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    views: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    likes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    comments: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    collects: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    idempotency_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    collected_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    output: Mapped[Output] = relationship(back_populates="metrics")
+    schedule: Mapped[Schedule] = relationship(back_populates="metrics")
+
+
+class CollectionJob(Base):
+    """一次排期指标回收任务。"""
+
+    __tablename__ = "collection_job"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'succeeded', 'failed')",
+            name="ck_collection_job_status",
+        ),
+        UniqueConstraint("schedule_id", "idempotency_key", name="uq_collection_schedule_idempotency"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(
+        ForeignKey("schedule.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    result_json: Mapped[str | None] = mapped_column(Text)
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    schedule: Mapped[Schedule] = relationship(back_populates="collection_jobs")
