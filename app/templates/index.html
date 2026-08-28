@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>黔衣有话 · 第一阶段演示</title>
+  <title>黔衣有话 · 第一、二阶段演示</title>
   <style>
     body { font-family: sans-serif; max-width: 1100px; margin: 20px auto; line-height: 1.5; }
     section { border: 1px solid #999; padding: 14px; margin-bottom: 16px; }
@@ -13,6 +13,8 @@
     pre { white-space: pre-wrap; background: #f4f4f4; padding: 10px; max-height: 360px; overflow: auto; }
     table { border-collapse: collapse; width: 100%; margin-top: 8px; }
     th, td { border: 1px solid #bbb; padding: 5px; text-align: left; vertical-align: top; }
+    .assessment-card { border: 1px solid #bbb; margin: 8px 0; padding: 8px; }
+    .assessment-card h4 { margin: 0 0 4px; }
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; }
     .form-grid label { display: flex; flex-direction: column; }
@@ -21,7 +23,7 @@
   </style>
 </head>
 <body>
-  <h1>黔衣有话 · 第一阶段演示</h1>
+  <h1>黔衣有话 · 第一、二阶段演示</h1>
   <p>画像采集 → DeepSeek 建库 → 本地 BGE 向量化 → 混合检索 → 决策留痕 → Agent 记忆</p>
 
   <section>
@@ -202,12 +204,56 @@
     <pre id="memoryOutput"></pre>
   </section>
 
+  <section id="assessmentSection">
+    <h2>8. 知识库体检与指标评估</h2>
+    <p>体检只依据当前博主的知识、素材、算法三库快照；评分由后端按保存的指标权重重新计算。</p>
+    <div class="row">
+      <label>幂等键 <input id="assessmentIdempotencyKey" type="text" placeholder="留空自动生成"></label>
+      <button id="startAssessment" type="button" disabled>开始体检</button>
+      <button id="loadAssessmentHistory" type="button" disabled>刷新历史体检</button>
+      <select id="assessmentSelect" disabled><option value="">暂无体检</option></select>
+      <button id="loadAssessment" type="button" disabled>查看体检详情</button>
+      <button id="retryAssessment" type="button" disabled>失败后重试</button>
+    </div>
+    <p>当前体检状态：<strong id="assessmentStatus">未开始</strong>；体检 ID：<strong id="assessmentId">无</strong></p>
+    <pre id="assessmentSummary"></pre>
+
+    <h3>三库结构与关系</h3>
+    <pre id="assessmentStructure">尚未加载体检结果。</pre>
+    <h3>核心资产</h3>
+    <pre id="assessmentCoreAssets">尚未加载体检结果。</pre>
+    <h3>薄弱点</h3>
+    <pre id="assessmentWeakPoints">尚未加载体检结果。</pre>
+    <h3>指标与综合分</h3>
+    <p>综合分：<strong id="assessmentOverallScore">暂无</strong></p>
+    <div id="assessmentIndicators"></div>
+    <h3>功能就绪与缺失项</h3>
+    <pre id="assessmentReadiness">尚未加载体检结果。</pre>
+    <pre id="assessmentMissing">尚未加载体检结果。</pre>
+    <h3>改进建议</h3>
+    <pre id="assessmentSuggestions">尚未加载体检结果。</pre>
+
+    <h3>历史体检</h3>
+    <pre id="assessmentHistory">尚未加载历史体检。</pre>
+    <div class="row">
+      <label>左侧体检 <select id="assessmentLeftSelect" disabled><option value="">请选择</option></select></label>
+      <label>右侧体检 <select id="assessmentRightSelect" disabled><option value="">请选择</option></select></label>
+      <button id="compareAssessments" type="button" disabled>比较两次体检</button>
+      <button id="loadAssessmentEvidence" type="button" disabled>查看证据详情</button>
+    </div>
+    <pre id="assessmentComparison">尚未执行历史比较。</pre>
+    <pre id="assessmentEvidence">尚未加载证据。</pre>
+    <p>第三阶段功能尚未实现：脚本/分镜生成、路线推荐、发布、反馈回写和经营报告仅展示就绪判断，不会在本页模拟执行。</p>
+  </section>
+
 <script>
 let sessionId = null;
 let bloggerId = null;
 let taskId = null;
 let editingAssetId = null;
 let editingPlaceId = null;
+let assessmentId = null;
+let assessmentRows = [];
 
 const $ = id => document.getElementById(id);
 const show = (id, value) => $(id).textContent =
@@ -236,6 +282,7 @@ const profileDependentControls = [
   'editProfile', 'saveProfile', 'deleteProfile', 'buildLibrary', 'searchAssets',
   'loadDecisions', 'loadDecisionErrors', 'saveAsset', 'searchPlaces', 'savePlace',
   'createTask', 'loadTasks', 'recallMemories', 'listMemories',
+  'startAssessment', 'loadAssessmentHistory',
 ];
 const taskDependentControls = [
   'appendTaskMessage', 'checkpointTask', 'recoverTask', 'completeTask', 'loadTask',
@@ -243,10 +290,21 @@ const taskDependentControls = [
 
 function setProfileControls(enabled) {
   profileDependentControls.forEach(id => $(id).disabled = !enabled);
+  setAssessmentProfileControls(enabled);
   if (!enabled) {
     taskDependentControls.forEach(id => $(id).disabled = true);
     $('taskSelect').disabled = true;
   }
+}
+
+function setAssessmentProfileControls(enabled) {
+  ['assessmentSelect', 'assessmentLeftSelect', 'assessmentRightSelect'].forEach(
+    id => $(id).disabled = !enabled,
+  );
+  $('loadAssessment').disabled = !enabled || !assessmentId;
+  $('retryAssessment').disabled = !enabled || !assessmentId;
+  $('loadAssessmentEvidence').disabled = !enabled || !assessmentId;
+  $('compareAssessments').disabled = !enabled || assessmentRows.length < 2;
 }
 
 function setTaskControls(enabled) {
@@ -266,10 +324,36 @@ function fillProfileForm(profile) {
   $('profileFrequency').value = profile.frequency || '';
 }
 
+function clearAssessmentDisplay() {
+  assessmentId = null;
+  assessmentRows = [];
+  $('assessmentIdempotencyKey').value = '';
+  $('assessmentId').textContent = '无';
+  $('assessmentStatus').textContent = '未开始';
+  $('assessmentSummary').textContent = '';
+  $('assessmentStructure').textContent = '尚未加载体检结果。';
+  $('assessmentCoreAssets').textContent = '尚未加载体检结果。';
+  $('assessmentWeakPoints').textContent = '尚未加载体检结果。';
+  $('assessmentOverallScore').textContent = '暂无';
+  $('assessmentIndicators').replaceChildren();
+  $('assessmentReadiness').textContent = '尚未加载体检结果。';
+  $('assessmentMissing').textContent = '尚未加载体检结果。';
+  $('assessmentSuggestions').textContent = '尚未加载体检结果。';
+  $('assessmentHistory').textContent = '尚未加载历史体检。';
+  $('assessmentComparison').textContent = '尚未执行历史比较。';
+  $('assessmentEvidence').textContent = '尚未加载证据。';
+  ['assessmentSelect', 'assessmentLeftSelect', 'assessmentRightSelect'].forEach(id => {
+    const select = $(id);
+    select.replaceChildren(new Option(id === 'assessmentSelect' ? '暂无体检' : '请选择', ''));
+    select.value = '';
+  });
+}
+
 function setActiveProfile(profile) {
   bloggerId = profile && profile.id ? Number(profile.id) : null;
   $('bloggerId').textContent = bloggerId ? String(bloggerId) : '无';
   if (profile) fillProfileForm(profile);
+  clearAssessmentDisplay();
   setProfileControls(Boolean(bloggerId));
 }
 
@@ -677,6 +761,194 @@ $('recallMemories').onclick = async () => {
 $('listMemories').onclick = async () => {
   try { show('memoryOutput', await api(`/api/v1/memory/bloggers/${bloggerId}/memories?status=all`)); }
   catch (error) { show('memoryOutput', errorText(error)); }
+};
+
+function assessmentUrl(suffix = '') {
+  return `/api/v1/bloggers/${bloggerId}/assessments${suffix}`;
+}
+
+function renderAssessmentIndicators(indicators) {
+  const container = $('assessmentIndicators');
+  container.replaceChildren();
+  if (!indicators.length) {
+    container.textContent = '当前体检没有可展示的指标。';
+    return;
+  }
+  indicators.forEach((indicator, index) => {
+    const card = document.createElement('article');
+    card.className = 'assessment-card';
+    const title = document.createElement('h4');
+    title.textContent = `${index + 1}. ${indicator.name || '未命名指标'} · ${indicator.score ?? '暂无'}分`;
+    const details = document.createElement('pre');
+    details.textContent = JSON.stringify({
+      meaning: indicator.meaning,
+      score_logic: indicator.score_logic,
+      business_meaning: indicator.business_meaning,
+      weight: indicator.weight,
+      weight_reason: indicator.weight_reason,
+      reason: indicator.reason,
+      evidence: indicator.evidences || indicator.evidence || [],
+    }, null, 2);
+    card.append(title, details);
+    container.append(card);
+  });
+}
+
+function renderAssessmentDetail(data) {
+  assessmentId = data && data.id ? Number(data.id) : null;
+  $('assessmentId').textContent = assessmentId || '无';
+  $('assessmentStatus').textContent = data.status || '未知';
+  $('retryAssessment').disabled = !bloggerId || data.status !== 'failed';
+  $('loadAssessment').disabled = !bloggerId || !assessmentId;
+  $('loadAssessmentEvidence').disabled = !bloggerId || !assessmentId;
+  const analysis = data.library_analysis || {};
+  show('assessmentSummary', data.summary || data.error_message || '当前体检尚无总结。');
+  show('assessmentStructure', {
+    libraries: analysis.libraries || {},
+    counts: analysis.counts || {},
+    source_coverage: analysis.source_coverage || {},
+    cross_library_relations: analysis.cross_library_relations || {},
+  });
+  show('assessmentCoreAssets', analysis.core_assets || []);
+  show('assessmentWeakPoints', {
+    weak_assets: analysis.weak_assets || [],
+    weak_categories: analysis.weak_categories || [],
+    low_credibility_assets: analysis.low_credibility_assets || [],
+    no_source_assets: analysis.no_source_assets || [],
+    orphan_assets: analysis.orphan_assets || [],
+  });
+  $('assessmentOverallScore').textContent = data.overall_score == null ? '暂无' : `${data.overall_score} 分`;
+  renderAssessmentIndicators(data.indicators || []);
+  show('assessmentReadiness', data.feature_readiness || analysis.feature_readiness || {});
+  const readiness = data.feature_readiness || analysis.feature_readiness || {};
+  const missing = new Set(analysis.missing_items || []);
+  Object.values(readiness).forEach(item => (item.missing_items || []).forEach(value => missing.add(value)));
+  show('assessmentMissing', [...missing]);
+  show('assessmentSuggestions', data.suggestions || analysis.suggestions || []);
+  show('assessmentEvidence', data.evidence || []);
+}
+
+function fillAssessmentSelect(selectId, rows, preferredId = null) {
+  const select = $(selectId);
+  select.replaceChildren();
+  if (!rows.length) {
+    select.append(new Option('暂无体检', ''));
+    return;
+  }
+  rows.forEach(row => {
+    const score = row.overall_score == null ? '暂无分数' : `${row.overall_score}分`;
+    select.append(new Option(`#${row.id} · ${row.status} · ${score}`, row.id));
+  });
+  const preferred = rows.find(row => Number(row.id) === Number(preferredId));
+  select.value = String(preferred ? preferred.id : rows[0].id);
+}
+
+function renderAssessmentHistory(rows) {
+  show('assessmentHistory', rows.map(row => ({
+    id: row.id,
+    status: row.status,
+    overall_score: row.overall_score,
+    snapshot_hash: row.snapshot_hash,
+    created_at: row.created_at,
+    error_code: row.error_code,
+  })));
+  fillAssessmentSelect('assessmentSelect', rows, assessmentId);
+  fillAssessmentSelect('assessmentLeftSelect', rows, rows.length > 1 ? rows[1].id : rows[0]?.id);
+  fillAssessmentSelect('assessmentRightSelect', rows, rows[0]?.id);
+  const hasTwo = rows.length >= 2;
+  $('compareAssessments').disabled = !bloggerId || !hasTwo;
+}
+
+async function refreshAssessmentHistory(preferredId = assessmentId) {
+  if (!bloggerId) return [];
+  try {
+    const rows = await api(`${assessmentUrl()}?page=1&page_size=100`);
+    assessmentRows = rows;
+    renderAssessmentHistory(rows);
+    if (preferredId && rows.some(row => Number(row.id) === Number(preferredId))) {
+      $('assessmentSelect').value = String(preferredId);
+    }
+    return rows;
+  } catch (error) {
+    show('assessmentHistory', errorText(error));
+    return [];
+  }
+}
+
+async function loadAssessmentDetail(assessmentToLoad = assessmentId) {
+  if (!bloggerId || !assessmentToLoad) return;
+  try {
+    const data = await api(`${assessmentUrl(`/${assessmentToLoad}`)}`);
+    renderAssessmentDetail(data);
+  } catch (error) {
+    show('assessmentSummary', errorText(error));
+  }
+}
+
+$('startAssessment').onclick = async () => {
+  if (!bloggerId) return;
+  const keyInput = $('assessmentIdempotencyKey');
+  const key = keyInput.value.trim() || `phase2-${bloggerId}-${Date.now()}`;
+  keyInput.value = key;
+  $('assessmentStatus').textContent = 'running（执行中）';
+  try {
+    const data = await api(assessmentUrl(), {
+      method: 'POST',
+      body: JSON.stringify({idempotency_key: key}),
+    });
+    renderAssessmentDetail(data);
+    await refreshAssessmentHistory(assessmentId);
+  } catch (error) {
+    show('assessmentSummary', errorText(error));
+    $('assessmentStatus').textContent = '失败（可重试）';
+  }
+};
+
+$('loadAssessmentHistory').onclick = async () => {
+  const rows = await refreshAssessmentHistory();
+  if (rows.length && !assessmentId) await loadAssessmentDetail(rows[0].id);
+};
+
+$('assessmentSelect').onchange = async event => {
+  assessmentId = Number(event.target.value) || null;
+  await loadAssessmentDetail(assessmentId);
+};
+
+$('loadAssessment').onclick = () => loadAssessmentDetail(assessmentId);
+
+$('retryAssessment').onclick = async () => {
+  if (!bloggerId || !assessmentId) return;
+  try {
+    const data = await api(assessmentUrl(`/${assessmentId}/retry`), {method: 'POST'});
+    renderAssessmentDetail(data);
+    await refreshAssessmentHistory(assessmentId);
+  } catch (error) {
+    show('assessmentSummary', errorText(error));
+  }
+};
+
+$('loadAssessmentEvidence').onclick = async () => {
+  if (!bloggerId || !assessmentId) return;
+  try {
+    show('assessmentEvidence', await api(assessmentUrl(`/${assessmentId}/evidence`)));
+  } catch (error) {
+    show('assessmentEvidence', errorText(error));
+  }
+};
+
+$('compareAssessments').onclick = async () => {
+  const left = $('assessmentLeftSelect').value;
+  const right = $('assessmentRightSelect').value;
+  if (!bloggerId || !left || !right || left === right) {
+    show('assessmentComparison', '请选择两次不同的已完成体检。');
+    return;
+  }
+  try {
+    const query = `?left_id=${encodeURIComponent(left)}&right_id=${encodeURIComponent(right)}`;
+    show('assessmentComparison', await api(`/api/v1/bloggers/${bloggerId}/assessments/compare${query}`));
+  } catch (error) {
+    show('assessmentComparison', errorText(error));
+  }
 };
 
 setProfileControls(false);

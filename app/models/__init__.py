@@ -1,4 +1,7 @@
 from app.models.entities import (
+    Assessment,
+    AssessmentEvidence,
+    AssessmentIndicator,
     Asset,
     AssetEmbedding,
     AssetSource,
@@ -21,6 +24,9 @@ __all__ = [
     "Asset",
     "AssetEmbedding",
     "AssetSource",
+    "Assessment",
+    "AssessmentEvidence",
+    "AssessmentIndicator",
     "Blogger",
     "BuildRun",
     "ConversationMessage",

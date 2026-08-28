@@ -1,8 +1,32 @@
 # 黔衣有话开发进度
 
 更新时间：2026-08-28
-当前分支：`develop/phase-1`
-阶段状态：`第一阶段收尾 REVIEW`
+当前分支：`develop/phase-2`
+阶段状态：`第二阶段知识库体检与指标评估最终门禁中`
+
+## 2026-08-28 第二阶段实现里程碑
+
+- 新增 `Assessment`、`AssessmentIndicator`、`AssessmentEvidence` 与 `0003_phase2_assessment`，体检指标按次固化且历史不覆盖。
+- 确定性分析由代码计算三库结构、可信来源、低可信/无来源/孤立资产、画像方向、跨库语义关系、核心资产、薄弱项、就绪度和快照哈希；原始向量不进入持久化快照、API 或外部模型提示。
+- `AssessmentAgent` 真实运行使用 `deepseek-v4-flash`，测试使用 Fake；JSON 只修复一次，并先收敛常见指标字段别名再严格校验。
+- 后端规范化权重并复算综合分，拒绝不存在、跨博主或资产/来源关系不一致的证据；关系证据两端均可从 `AssessmentEvidence` 追溯。
+- 编排已接入 TaskSession、顺序消息/检查点、固定四段 Context、DecisionLog、final_summary 和不自动激活的长期记忆候选；失败不留下部分指标/证据，中断任务在服务启动后进入可重试状态。
+- 六个体检 API、具体 OpenAPI response schema、历史比较和最简演示页已接通；切换博主会清空旧体检展示，跨博主访问统一 404。
+- 迁移专项：一期固定到 `0002_phase1_closure`，二期验证 `base/0002 → 0003`、数据保留和 downgrade/upgrade；实际本地库已从 0002 升到 0003。
+- 真实集成：BGE 在 RTX 4060 CUDA 上输出 512 维，`1 passed in 11.98s`；联网 DeepSeek 返回合法体检结构，`1 passed in 56.55s`。
+- 最终全量 pytest：113 collected，`109 passed, 4 skipped, 16 warnings in 147.75s`；默认 skip 仅为真实集成开关。
+- `app/services` 覆盖率 `82.38%`；Ruff `All checks passed!`；Mypy `Success: no issues found in 31 source files`。
+- 最终覆盖率插桩性能：1000 条二期预分析 `0.615670s`，体检普通 CRUD `0.034175s`；一期检索 `0.148545s`，CRUD `0.034548s`。
+- 安全核验：Git 跟踪敏感文件为 `NONE`，本地 Key 内容未出现在任何跟踪文本中；数据库、任务、模型和两类 pytest 临时目录均命中 `.gitignore`。
+- Git 提交与远端同步证据将在本轮发布后回填。
+
+## 2026-08-28 第二阶段开工
+
+- 第一阶段最终提交 `3c2e4ca` 已与 `origin/develop/phase-1` 同步。
+- 已从该提交创建并通过 SSH 推送独立分支 `develop/phase-2`。
+- Alembic 起始 head：`0002_phase1_closure`；第二阶段迁移必须衔接为 0003。
+- 第二阶段严格限定为三库体检、动态指标、证据评分、功能就绪和历史比较，不实现内容产出、路线、发布、反馈或经营报告。
+- 详细任务与证据矩阵见 `docs/产品文档/第二阶段_开发任务清单_v1.0.md`。
 
 ## 2026-08-28 第一阶段收尾里程碑
 

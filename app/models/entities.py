@@ -44,6 +44,7 @@ class Blogger(Base):
 
     assets: Mapped[list[Asset]] = relationship(back_populates="blogger", cascade="all, delete-orphan")
     places: Mapped[list[Place]] = relationship(back_populates="blogger", cascade="all, delete-orphan")
+    assessments: Mapped[list[Assessment]] = relationship(back_populates="blogger", cascade="all, delete-orphan")
 
 
 class ConversationSession(Base):
@@ -200,6 +201,126 @@ class Place(Base):
     blogger: Mapped[Blogger] = relationship(back_populates="places")
 
 
+class Assessment(Base):
+    """一次知识库体检的不可变结果快照。
+
+    体检执行过程中的状态和错误保存在本表；只有成功体检才会写入指标和证据
+    子表。指标子表不提供更新字段，服务层应通过重新体检创建新的快照。
+    """
+
+    __tablename__ = "assessment"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'succeeded', 'failed')",
+            name="ck_assessment_status",
+        ),
+        CheckConstraint(
+            "overall_score IS NULL OR (overall_score >= 0 AND overall_score <= 100)",
+            name="ck_assessment_overall_score",
+        ),
+        UniqueConstraint("blogger_id", "idempotency_key", name="uq_assessment_blogger_idempotency"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    blogger_id: Mapped[int] = mapped_column(ForeignKey("blogger.id", ondelete="CASCADE"), nullable=False, index=True)
+    task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("task_session.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    snapshot_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    input_snapshot_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    library_analysis_json: Mapped[str | None] = mapped_column(Text)
+    feature_readiness_json: Mapped[str | None] = mapped_column(Text)
+    suggestions_json: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text)
+    overall_score: Mapped[float | None] = mapped_column(Float)
+    decision_id: Mapped[int | None] = mapped_column(
+        ForeignKey("decision_log.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    prompt_version: Mapped[str] = mapped_column(String(50), nullable=False, default="phase2-v1")
+    model_name: Mapped[str] = mapped_column(String(200), nullable=False, default="deepseek-v4-flash")
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    blogger: Mapped[Blogger] = relationship(back_populates="assessments")
+    task: Mapped[TaskSession | None] = relationship(back_populates="assessments")
+    decision: Mapped[DecisionLog | None] = relationship()
+    indicators: Mapped[list[AssessmentIndicator]] = relationship(
+        back_populates="assessment", cascade="all, delete-orphan", order_by="AssessmentIndicator.ordinal"
+    )
+    evidences: Mapped[list[AssessmentEvidence]] = relationship(
+        back_populates="assessment", cascade="all, delete-orphan", order_by="AssessmentEvidence.id"
+    )
+
+
+class AssessmentIndicator(Base):
+    """体检时由 Agent 定义并固化的指标快照。"""
+
+    __tablename__ = "assessment_indicator"
+    __table_args__ = (
+        CheckConstraint("ordinal > 0", name="ck_assessment_indicator_ordinal"),
+        CheckConstraint("weight > 0 AND weight <= 100", name="ck_assessment_indicator_weight"),
+        CheckConstraint(
+            "score IS NULL OR (score >= 0 AND score <= 100)",
+            name="ck_assessment_indicator_score",
+        ),
+        UniqueConstraint("assessment_id", "ordinal", name="uq_assessment_indicator_ordinal"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    assessment_id: Mapped[int] = mapped_column(
+        ForeignKey("assessment.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    meaning: Mapped[str] = mapped_column(Text, nullable=False)
+    score_logic: Mapped[str] = mapped_column(Text, nullable=False)
+    business_meaning: Mapped[str] = mapped_column(Text, nullable=False)
+    weight: Mapped[float] = mapped_column(Float, nullable=False)
+    weight_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    assessment: Mapped[Assessment] = relationship(back_populates="indicators")
+    evidences: Mapped[list[AssessmentEvidence]] = relationship(
+        back_populates="indicator", cascade="all, delete-orphan", order_by="AssessmentEvidence.id"
+    )
+
+
+class AssessmentEvidence(Base):
+    """把体检结论绑定到本博主当前快照中的资产与来源。"""
+
+    __tablename__ = "assessment_evidence"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    assessment_id: Mapped[int] = mapped_column(
+        ForeignKey("assessment.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    indicator_id: Mapped[int] = mapped_column(
+        ForeignKey("assessment_indicator.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    evidence_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    asset_id: Mapped[int | None] = mapped_column(
+        ForeignKey("asset.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    source_document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("source_document.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    claim: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    assessment: Mapped[Assessment] = relationship(back_populates="evidences")
+    indicator: Mapped[AssessmentIndicator] = relationship(back_populates="evidences")
+    asset: Mapped[Asset | None] = relationship()
+    source_document: Mapped[SourceDocument | None] = relationship()
+
+
 class MemoryRecord(Base):
     __tablename__ = "memory_record"
     __table_args__ = (
@@ -256,6 +377,8 @@ class TaskSession(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    assessments: Mapped[list[Assessment]] = relationship(back_populates="task")
 
 
 class SessionMessage(Base):

@@ -5,9 +5,11 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 import app.models  # noqa: F401
+from app.api.assessment_routes import get_assessment_agent
 from app.api.routes import get_embedding_service, get_profile_agent
 from app.db.session import Base
 from app.main import app
+from app.services.assessment_agent import FakeAssessmentAgent
 from app.services.embedding_service import FakeEmbeddingService
 from app.services.profile_agent import FakeProfileAgent
 
@@ -16,9 +18,11 @@ from app.services.profile_agent import FakeProfileAgent
 def fake_api_embedding_dependency():
     app.dependency_overrides[get_embedding_service] = FakeEmbeddingService
     app.dependency_overrides[get_profile_agent] = FakeProfileAgent
+    app.dependency_overrides[get_assessment_agent] = FakeAssessmentAgent
     yield
     app.dependency_overrides.pop(get_embedding_service, None)
     app.dependency_overrides.pop(get_profile_agent, None)
+    app.dependency_overrides.pop(get_assessment_agent, None)
 
 
 @pytest.fixture()

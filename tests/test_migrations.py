@@ -30,6 +30,7 @@ INITIAL_TABLES = {
     "task_artifact",
 }
 ALL_TABLES = INITIAL_TABLES | {"place"}
+PHASE1_HEAD = "0002_phase1_closure"
 
 
 def migration_config(db_path: Path) -> Config:
@@ -40,7 +41,7 @@ def migration_config(db_path: Path) -> Config:
     return config
 
 
-def upgrade(db_path: Path, revision: str = "head") -> None:
+def upgrade(db_path: Path, revision: str = PHASE1_HEAD) -> None:
     command.upgrade(migration_config(db_path), revision)
 
 
@@ -98,7 +99,7 @@ def test_0001_is_frozen_as_explicit_alembic_ddl() -> None:
     assert "op.create_index" in source
 
 
-def test_empty_database_upgrades_from_base_to_head(tmp_path: Path) -> None:
+def test_empty_database_upgrades_from_base_to_phase1_head(tmp_path: Path) -> None:
     db_path = tmp_path / "empty.db"
 
     upgrade(db_path)
@@ -106,7 +107,7 @@ def test_empty_database_upgrades_from_base_to_head(tmp_path: Path) -> None:
     with connection(db_path) as conn:
         inspector = inspect(conn)
         assert set(inspector.get_table_names()) == ALL_TABLES | {"alembic_version"}
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0002_phase1_closure"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == PHASE1_HEAD
         assert {column["name"] for column in inspector.get_columns("blogger")} >= {
             "deleted_at",
         }
@@ -160,7 +161,7 @@ def test_existing_0001_data_survives_upgrade_to_0002(tmp_path: Path) -> None:
         assert blogger.name == "旧版本博主7"
         assert blogger.deleted_at is None
         assert conn.scalar(text("SELECT COUNT(*) FROM place")) == 0
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0002_phase1_closure"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == PHASE1_HEAD
 
 
 def test_upgrade_adopts_place_precreated_by_runtime_metadata(tmp_path: Path) -> None:
@@ -191,7 +192,7 @@ def test_upgrade_adopts_place_precreated_by_runtime_metadata(tmp_path: Path) -> 
         assert "deleted_at" in {
             column["name"] for column in inspect(conn).get_columns("blogger")
         }
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0002_phase1_closure"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == PHASE1_HEAD
 
 
 def test_downgrade_upgrade_round_trip_preserves_0001_data(tmp_path: Path) -> None:
@@ -215,4 +216,4 @@ def test_downgrade_upgrade_round_trip_preserves_0001_data(tmp_path: Path) -> Non
         assert "place" in inspector.get_table_names()
         assert "deleted_at" in {column["name"] for column in inspector.get_columns("blogger")}
         assert conn.scalar(text("SELECT name FROM blogger WHERE id = 11")) == "旧版本博主11"
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0002_phase1_closure"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == PHASE1_HEAD
