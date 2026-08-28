@@ -470,10 +470,22 @@ class TaskMemoryService:
         task.status = status
         task.completed_at = now
         task.updated_at = now
-        self.db.commit()
-        self._atomic_write_json(self._task_dir(task.id) / "final_summary.json", summary)
-        self._write_task_json(task)
-        return task
+        final_path = self._task_dir(task.id) / "final_summary.json"
+        task_path = self._task_dir(task.id) / "task.json"
+        previous_final = final_path.read_bytes() if final_path.exists() else None
+        previous_task = task_path.read_bytes() if task_path.exists() else None
+        try:
+            # 先原子替换文件，再提交数据库；任一步失败都会恢复两份文件并
+            # 回滚数据库，避免 completed 状态与 final_summary 不一致。
+            self._atomic_write_json(final_path, summary)
+            self._write_task_json(task)
+            self.db.commit()
+            return task
+        except Exception:
+            self.db.rollback()
+            self._restore_file(final_path, previous_final)
+            self._restore_file(task_path, previous_task)
+            raise
 
     finish_task = complete_task
     end_task = complete_task
@@ -577,6 +589,13 @@ class TaskMemoryService:
         except ValueError as exc:
             raise TaskMemoryError("任务目录越界") from exc
         return task_dir
+
+    @staticmethod
+    def _restore_file(path: Path, previous: bytes | None) -> None:
+        if previous is None:
+            path.unlink(missing_ok=True)
+            return
+        TaskMemoryService._atomic_write_bytes(path, previous)
 
     def _ensure_task_directory(self, task: TaskSession) -> None:
         expected = self._task_dir(task.id)

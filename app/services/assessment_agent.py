@@ -19,6 +19,7 @@ import httpx
 from app.core.config import settings
 
 LIBRARY_TYPES = ("knowledge", "material", "algorithm")
+MAX_PROMPT_ASSETS_PER_LIBRARY = 50
 REQUIRED_INDICATOR_FIELDS = (
     "name",
     "meaning",
@@ -722,7 +723,7 @@ def _analysis_for_prompt(analysis: Mapping[str, Any]) -> dict[str, Any]:
                     "content": _asset_content(item)[:500],
                     "source_document_id": _source_id(item),
                 }
-                for item in items
+                for item in items[:MAX_PROMPT_ASSETS_PER_LIBRARY]
                 if _asset_id(item) is not None
             ]
     return result
@@ -950,6 +951,30 @@ class DeepSeekAssessmentAgent(_IdempotentAssessmentAgent):
                 "体检 Agent 必须返回至少三项指标",
                 request_id=request_id,
             )
+        required = {
+            "name",
+            "meaning",
+            "score_logic",
+            "business_meaning",
+            "weight",
+            "weight_reason",
+            "score",
+            "reason",
+        }
+        for indicator in indicators:
+            if not isinstance(indicator, Mapping) or not required.issubset(indicator):
+                raise AssessmentAgentError(
+                    "AGENT_INVALID_JSON",
+                    "体检 Agent 指标字段不完整",
+                    request_id=request_id,
+                )
+            evidence = indicator.get("evidence_refs", indicator.get("evidence"))
+            if not isinstance(evidence, list) or not evidence:
+                raise AssessmentAgentError(
+                    "AGENT_INVALID_JSON",
+                    "体检 Agent 指标必须包含证据引用",
+                    request_id=request_id,
+                )
 
     @staticmethod
     def _prompt(

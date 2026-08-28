@@ -351,6 +351,12 @@ class AssessmentService:
                                 claim=evidence_row["claim"],
                             )
                         )
+            self._add_conclusion_evidence(
+                assessment.id,
+                indicator_rows[0][0].id,
+                analysis,
+                normalized,
+            )
             decision = DecisionLog(
                 blogger_id=assessment.blogger_id,
                 decision_type="assessment",
@@ -392,6 +398,74 @@ class AssessmentService:
         except Exception:
             self.db.rollback()
             raise
+
+    def _add_conclusion_evidence(
+        self,
+        assessment_id: int,
+        indicator_id: int,
+        analysis: dict[str, Any],
+        normalized: dict[str, Any],
+    ) -> None:
+        """把核心、薄弱和就绪结论也固化为可查询证据，而非只留在 JSON。"""
+
+        assets = {
+            int(item["id"]): item
+            for item in analysis.get("assets", [])
+            if isinstance(item, dict) and isinstance(item.get("id"), int)
+        }
+        for item in normalized.get("core_assets", []):
+            if not isinstance(item, dict) or item.get("asset_id") not in assets:
+                continue
+            asset_id = int(item["asset_id"])
+            self.db.add(
+                AssessmentEvidence(
+                    assessment_id=assessment_id,
+                    indicator_id=indicator_id,
+                    evidence_type="core_asset",
+                    asset_id=asset_id,
+                    claim=f"核心资产：{item.get('title') or assets[asset_id].get('title') or asset_id}",
+                )
+            )
+        for item in normalized.get("weak_points", []):
+            if not isinstance(item, dict) or item.get("asset_id") not in assets:
+                continue
+            asset_id = int(item["asset_id"])
+            self.db.add(
+                AssessmentEvidence(
+                    assessment_id=assessment_id,
+                    indicator_id=indicator_id,
+                    evidence_type="weak_asset",
+                    asset_id=asset_id,
+                    claim=f"薄弱资产：{item.get('reason') or item.get('title') or asset_id}",
+                )
+            )
+
+        readiness = normalized.get("feature_readiness", {})
+        first_asset_id = next(iter(assets), None)
+        if isinstance(readiness, dict):
+            for feature, raw in readiness.items():
+                if not isinstance(raw, dict):
+                    continue
+                ready = bool(raw.get("ready"))
+                missing_items = raw.get("missing_items", [])
+                if ready:
+                    claim = f"{feature} 就绪：由当前快照中的可验证资产支撑"
+                    evidence_type = "readiness"
+                    readiness_asset_id: int | None = first_asset_id
+                else:
+                    missing = "；".join(str(item) for item in missing_items) or "缺少必要可信数据"
+                    claim = f"{feature} 未就绪：{missing}"
+                    evidence_type = "readiness_gap"
+                    readiness_asset_id = None
+                self.db.add(
+                    AssessmentEvidence(
+                        assessment_id=assessment_id,
+                        indicator_id=indicator_id,
+                        evidence_type=evidence_type,
+                        asset_id=readiness_asset_id,
+                        claim=claim,
+                    )
+                )
 
     def _persist_failure(self, assessment_id: int, code: str, message: str) -> None:
         self.db.rollback()

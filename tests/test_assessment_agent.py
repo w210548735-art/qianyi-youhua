@@ -257,3 +257,43 @@ def test_deepseek_second_invalid_json_fails_without_cache(monkeypatch):
     else:  # pragma: no cover
         raise AssertionError("expected invalid JSON error")
     assert agent.call_count == 2
+
+
+def test_deepseek_repairs_incomplete_indicator_fields_once(monkeypatch):
+    key_file = module.settings.deepseek_key_file
+    monkeypatch.setattr(module, "settings", Settings(deepseek_key_file=key_file))
+    incomplete = {"indicators": [{"name": f"指标{index}"} for index in range(3)]}
+    responses = [
+        json.dumps(incomplete, ensure_ascii=False),
+        json.dumps(valid_model_payload(), ensure_ascii=False),
+    ]
+
+    def fake_post(*args, **kwargs):
+        return FakeResponse(responses.pop(0))
+
+    agent = DeepSeekAssessmentAgent(post=fake_post)
+    result = agent.assess(
+        [{"role": "system", "content": "规则"}],
+        analysis_fixture(),
+        request_id="incomplete-fields",
+    )
+
+    assert len(result["indicators"]) == 3
+    assert agent.call_count == 2
+
+
+def test_deepseek_prompt_caps_assets_per_library():
+    analysis = analysis_fixture()
+    template = analysis["assets"][0]
+    analysis["assets"] = [
+        {**template, "id": 1000 + index, "title": f"知识{index}"}
+        for index in range(75)
+    ] + analysis["assets"][2:]
+
+    prompt = DeepSeekAssessmentAgent._prompt(
+        [{"role": "system", "content": "规则"}],
+        analysis,
+        "bounded-prompt",
+    )
+
+    assert len(prompt["library_analysis"]["assets_by_library"]["knowledge"]) == 50

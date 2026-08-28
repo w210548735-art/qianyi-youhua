@@ -85,8 +85,15 @@ class CapturingAssessmentAgent(FakeAssessmentAgent):
 
 
 class FailingCompletionTaskService(TaskMemoryService):
-    def complete_task(self, *args, **kwargs):
-        raise OSError("final summary write failed")
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.failed_once = False
+
+    def _atomic_write_json(self, path, payload):
+        if path.name == "final_summary.json" and not self.failed_once:
+            self.failed_once = True
+            raise OSError("final summary write failed")
+        return super()._atomic_write_json(path, payload)
 
 
 def test_success_persists_nonempty_evidence_children_task_decision_and_candidate_memory(db, tmp_path: Path):
@@ -138,6 +145,9 @@ def test_success_persists_nonempty_evidence_children_task_decision_and_candidate
     assert relation_rows
     assert {row.evidence_type for row in relation_rows} >= {"relation_from", "relation_to"}
     assert all(row.asset_id is not None for row in relation_rows)
+    evidence_types = {row.evidence_type for row in loaded.evidences}
+    assert {"core_asset", "readiness", "readiness_gap"}.issubset(evidence_types)
+    assert all(row.claim.strip() for row in loaded.evidences)
 
 
 def test_idempotency_history_and_cross_blogger_access_are_isolated(db, tmp_path: Path):
@@ -271,6 +281,10 @@ def test_final_summary_failure_leaves_no_success_decision_memory_or_report(db, t
     assert db.scalar(
         select(func.count()).select_from(MemoryRecord).where(MemoryRecord.source_type == "decision_log")
     ) == 0
+    task = db.get(TaskSession, failed.task_id)
+    assert task is not None and task.status == "failed"
+    summary = json.loads((tmp_path / "tasks" / task.id / "final_summary.json").read_text("utf-8"))
+    assert summary["status"] == "failed"
 
 
 def test_recover_unfinished_assessment_marks_it_retryable_and_preserves_task_checkpoint(db, tmp_path: Path):

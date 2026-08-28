@@ -13,9 +13,10 @@
 - 编排已接入 TaskSession、顺序消息/检查点、固定四段 Context、DecisionLog、final_summary 和不自动激活的长期记忆候选；失败不留下部分指标/证据，中断任务在服务启动后进入可重试状态。
 - 六个体检 API、具体 OpenAPI response schema、历史比较和最简演示页已接通；切换博主会清空旧体检展示，跨博主访问统一 404。
 - 迁移专项：一期固定到 `0002_phase1_closure`，二期验证 `base/0002 → 0003`、数据保留和 downgrade/upgrade；实际本地库已从 0002 升到 0003。
-- 真实集成：BGE 在 RTX 4060 CUDA 上输出 512 维，`1 passed in 11.98s`；联网 DeepSeek 返回合法体检结构，`1 passed in 56.55s`。
-- 最终全量 pytest：113 collected，`109 passed, 4 skipped, 16 warnings in 147.75s`；默认 skip 仅为真实集成开关。
-- `app/services` 覆盖率 `82.38%`；Ruff `All checks passed!`；Mypy `Success: no issues found in 31 source files`。
+- 真实集成：BGE 在 RTX 4060 CUDA 上输出 512 维，`1 passed in 11.98s`；严格指标字段协议下联网 DeepSeek 返回合法体检结构，`1 passed in 42.82s`。
+- 最终全量 pytest：115 collected，`111 passed, 4 skipped, 16 warnings in 144.06s`；默认 skip 仅为真实集成开关。
+- `app/services` 覆盖率 `82.34%`；Ruff `All checks passed!`；Mypy `Success: no issues found in 31 source files`。
+- 终审加固：核心/薄弱/就绪/缺失结论均落 Evidence；任务完成文件与数据库失败可回滚；不完整指标只修复一次；每库进入模型的资产最多50条。
 - 最终覆盖率插桩性能：1000 条二期预分析 `0.615670s`，体检普通 CRUD `0.034175s`；一期检索 `0.148545s`，CRUD `0.034548s`。
 - 安全核验：Git 跟踪敏感文件为 `NONE`，本地 Key 内容未出现在任何跟踪文本中；数据库、任务、模型和两类 pytest 临时目录均命中 `.gitignore`。
 - 实现提交 `2cc1c37` 已通过 SSH 推送 `origin/develop/phase-2`；未提交或合并 `main`。最终文档提交随后独立推送，最终哈希以交付报告为准。
