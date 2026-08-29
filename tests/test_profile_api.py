@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import time
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
@@ -17,6 +19,8 @@ from app.models import (
     MemoryRecord,
 )
 from app.services.profile_agent import FakeProfileAgent, ProfileAgentError
+
+pytestmark = pytest.mark.daily
 
 
 def test_profile_conversation_and_confirmation(db):
@@ -360,3 +364,106 @@ def test_profile_unknown_route_remains_missing(db):
 
 def _fixed_route_clarification() -> str:
     return f"请尽量具体说明“{QUESTIONS['routes']}”；如仍不确定，可再次回答原内容。"
+
+
+def test_batch_profile_form_calls_agent_once_and_waits_for_confirmation(db):
+    def override_db():
+        yield db
+
+    agent = FakeProfileAgent(
+        response={
+            "fields": {
+                "platform": "B站",
+                "content_types": ["贵州美食", "非遗"],
+                "frequency": "周更",
+            }
+        }
+    )
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_profile_agent] = lambda: agent
+    client = TestClient(app)
+    try:
+        started_at = time.perf_counter()
+        response = client.post(
+            "/api/v1/profile-sessions/batch-format",
+            json={
+                "request_id": "batch-profile-001",
+                "name": "阿黔",
+                "platform": "哔哩哔哩",
+                "content_types": ["贵州美食", "非遗"],
+                "style": "口播",
+                "follower_band": "1万-10万",
+                "monetization_types": ["商单", "探店"],
+                "routes": "黔东南",
+                "viral_topic": "酸汤鱼",
+                "frequency": "每周更新",
+                "notes": "字段仅用于格式化，不允许模型补造事实。",
+            },
+        )
+        elapsed = time.perf_counter() - started_at
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "confirming"
+        assert payload["question"] is None
+        assert payload["collected_profile"]["platform"] == "B站"
+        assert payload["collected_profile"]["frequency"] == "周更"
+        assert agent.call_count == 1
+        assert elapsed < 0.3
+        assert db.scalar(select(func.count()).select_from(Blogger)) == 0
+
+        decision = db.scalars(
+            select(DecisionLog)
+            .where(DecisionLog.decision_type == "profile_agent_batch_format")
+            .order_by(DecisionLog.id.desc())
+        ).first()
+        assert decision is not None
+        decision_payload = json.loads(decision.decision)
+        assert decision_payload["adopted_profile"]["platform"] == "B站"
+
+        confirmed = client.post(
+            f"/api/v1/profile-sessions/{payload['session_id']}/confirm",
+            json={
+                **payload["collected_profile"],
+                "style": "用户核对后的口播",
+            },
+        )
+        assert confirmed.status_code == 200
+        assert confirmed.json()["platform"] == "B站"
+        assert confirmed.json()["style"] == "用户核对后的口播"
+        assert db.scalar(select(func.count()).select_from(Blogger)) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_batch_profile_agent_failure_does_not_leave_partial_session(db):
+    def override_db():
+        yield db
+
+    failure = ProfileAgentError(
+        "PROFILE_AGENT_REQUEST_FAILED",
+        "模拟网络失败",
+        retryable=True,
+        request_id="batch-failure-001",
+    )
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_profile_agent] = lambda: FakeProfileAgent(fail_with=failure)
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/api/v1/profile-sessions/batch-format",
+            json={
+                "request_id": "batch-failure-001",
+                "name": "阿黔",
+                "platform": "B站",
+                "content_types": ["贵州美食"],
+                "style": "口播",
+                "follower_band": "1万-10万",
+                "monetization_types": ["商单"],
+            },
+        )
+        assert response.status_code == 503
+        assert response.json()["detail"]["error_code"] == "PROFILE_AGENT_REQUEST_FAILED"
+        assert db.scalar(select(func.count()).select_from(ConversationSession)) == 0
+        assert db.scalar(select(func.count()).select_from(Blogger)) == 0
+    finally:
+        app.dependency_overrides.clear()

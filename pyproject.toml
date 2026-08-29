@@ -27,6 +27,13 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+addopts = "-m daily"
+markers = [
+  "daily: 每次代码修改后运行的代表性快速回归",
+  "migration: Alembic 历史升级、降级和漂移门禁；仅在迁移或模型变更时运行",
+  "performance: 千条规模与时延门禁；提交前或性能相关改动时运行",
+  "real_integration: 真实 BGE/CUDA 或 DeepSeek 集成；必须显式提供环境开关",
+]
 
 [tool.ruff]
 line-length = 120

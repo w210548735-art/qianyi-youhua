@@ -12,6 +12,8 @@ from app.services.embedding_service import EmbeddingService
 from app.services.feedback_agent import DeepSeekFeedbackAgent, FeedbackAgentError
 from app.services.feedback_validation_service import FeedbackValidationService
 
+pytestmark = pytest.mark.real_integration
+
 _TRUTHY = {"1", "true", "yes", "on"}
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class BloggerCreate(BaseModel):
@@ -15,6 +15,21 @@ class BloggerCreate(BaseModel):
     routes: str | None = None
     viral_topic: str | None = None
     frequency: str | None = None
+
+
+class ProfileBatchFormatRequest(BloggerCreate):
+    """一次提交的结构化画像表单，由 Agent 统一规范格式后等待确认。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str | None = Field(default=None, min_length=8, max_length=100)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class ProfileBatchConfirmRequest(BloggerCreate):
+    """用户核对格式化预览后一次提交的最终画像。"""
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class BloggerRead(BloggerCreate):

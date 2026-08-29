@@ -28,6 +28,8 @@ from app.services.report_service import ReportService
 from app.services.route_service import RouteService
 from app.services.task_memory_service import TaskMemoryService
 
+pytestmark = pytest.mark.daily
+
 
 class StableAnalysis:
     def build_snapshot(self, *_args, **_kwargs):

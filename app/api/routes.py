@@ -23,6 +23,8 @@ from app.schemas.api import (
     BloggerUpdate,
     BuildRequest,
     ConversationMessageCreate,
+    ProfileBatchConfirmRequest,
+    ProfileBatchFormatRequest,
     ProfileCorrection,
 )
 from app.services.asset_service import (
@@ -153,6 +155,152 @@ def start_profile_session(db: Session = Depends(get_db)) -> dict:
         "status": session.status,
         "question": QUESTIONS[QUESTION_ORDER[0]],
         "collected_profile": {},
+    }
+
+
+@router.post("/profile-sessions/batch-format")
+def format_profile_batch(
+    body: ProfileBatchFormatRequest,
+    db: Session = Depends(get_db),
+    profile_agent: ProfileAgent = Depends(get_profile_agent),
+) -> dict:
+    """用一次 Agent 调用格式化完整表单，并创建等待用户确认的画像会话。"""
+
+    submitted_profile = body.model_dump(exclude={"request_id", "notes"})
+    request_id = body.request_id or hashlib.sha256(
+        json.dumps(submitted_profile, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    field_labels = {
+        "name": "博主名称",
+        "platform": "平台",
+        "content_types": "内容类型",
+        "style": "创作风格",
+        "follower_band": "粉丝量级",
+        "monetization_types": "变现方式",
+        "routes": "常跑路线",
+        "viral_topic": "表现较好的主题",
+        "frequency": "更新频率",
+    }
+    formatted_lines = []
+    for field in QUESTION_ORDER:
+        value = submitted_profile.get(field)
+        if value is not None and value != "":
+            rendered = "、".join(value) if isinstance(value, list) else str(value)
+            formatted_lines.append(f"{field_labels[field]}：{rendered}")
+    if body.notes:
+        formatted_lines.append(f"补充说明：{body.notes.strip()}")
+    user_message = "\n".join(formatted_lines)
+
+    try:
+        agent_result = profile_agent.extract(
+            user_message,
+            submitted_profile,
+            request_id=request_id,
+            current_field=None,
+            conversation=(),
+        )
+    except ProfileAgentError as exc:
+        db.add(
+            DecisionLog(
+                blogger_id=None,
+                decision_type="profile_agent_batch_failure",
+                prompt_version="deepseek-v4-flash",
+                input_summary=json.dumps(
+                    {"request_id": request_id, "submitted_profile": submitted_profile},
+                    ensure_ascii=False,
+                ),
+                decision=json.dumps(
+                    {"error_code": exc.code, "retryable": exc.retryable},
+                    ensure_ascii=False,
+                ),
+                reason="批量画像格式化失败，未创建半成品会话或博主记录",
+            )
+        )
+        db.commit()
+        raise HTTPException(
+            503,
+            {
+                "error_code": exc.code,
+                "retryable": exc.retryable,
+                "request_id": request_id,
+            },
+        ) from exc
+
+    adopted_profile = {
+        field: agent_result.fields[field]
+        for field in QUESTION_ORDER
+        if agent_result.fields.get(field) is not None and agent_result.fields.get(field) != ""
+    }
+    missing_required = [field for field in QUESTION_ORDER[:6] if not adopted_profile.get(field)]
+    if missing_required:
+        raise HTTPException(
+            422,
+            {
+                "error_code": "PROFILE_REQUIRED_FIELDS_MISSING",
+                "missing_fields": missing_required,
+                "request_id": request_id,
+            },
+        )
+
+    stored_profile = {
+        **adopted_profile,
+        "_collection_mode": "batch_form",
+        "_request_id": request_id,
+    }
+    session = ConversationSession(
+        status="confirming",
+        current_question="name",
+        collected_profile_json=json.dumps(stored_profile, ensure_ascii=False),
+    )
+    db.add(session)
+    db.flush()
+    db.add_all(
+        [
+            ConversationMessage(
+                session_id=session.id,
+                role="user",
+                content="用户一次性提交了结构化画像表单。",
+            ),
+            ConversationMessage(
+                session_id=session.id,
+                role="assistant",
+                content="画像格式化完成，请核对表格后确认创建。",
+            ),
+        ]
+    )
+    db.add(
+        DecisionLog(
+            blogger_id=None,
+            decision_type="profile_agent_batch_format",
+            prompt_version="deepseek-v4-flash",
+            input_summary=json.dumps(
+                {
+                    "session_id": session.id,
+                    "request_id": request_id,
+                    "submitted_profile": submitted_profile,
+                },
+                ensure_ascii=False,
+            ),
+            decision=json.dumps(
+                {
+                    **agent_result.to_dict(),
+                    "adopted_profile": adopted_profile,
+                    "next_field": None,
+                    "adopted_question": None,
+                },
+                ensure_ascii=False,
+            ),
+            reason="用户一次提交完整表单，Agent 仅格式化明确内容，后端等待用户确认后再创建画像",
+        )
+    )
+    db.commit()
+    return {
+        "session_id": session.id,
+        "status": session.status,
+        "question": None,
+        "request_id": request_id,
+        "retryable": False,
+        "collected_profile": adopted_profile,
     }
 
 
@@ -413,6 +561,7 @@ def correct_profile(
 @router.post("/profile-sessions/{session_id}/confirm")
 def confirm_profile(
     session_id: int,
+    body: ProfileBatchConfirmRequest | None = None,
     db: Session = Depends(get_db),
     embedding: EmbeddingService = Depends(get_embedding_service),
 ) -> dict:
@@ -426,8 +575,12 @@ def confirm_profile(
         return blogger_to_dict(completed_blogger)
     if session.status != "confirming":
         raise HTTPException(409, "画像必填信息尚未采集完成")
+    stored_profile = json.loads(session.collected_profile_json)
+    if body is not None:
+        stored_profile.update(body.model_dump())
+        session.collected_profile_json = json.dumps(stored_profile, ensure_ascii=False)
     profile = {
-        key: value for key, value in json.loads(session.collected_profile_json).items() if not key.startswith("_")
+        key: value for key, value in stored_profile.items() if not key.startswith("_")
     }
     required = QUESTION_ORDER[:6]
     if any(not profile.get(field) for field in required):
@@ -445,13 +598,18 @@ def confirm_profile(
     )
     db.add(blogger)
     db.flush()
+    collection_mode = stored_profile.get("_collection_mode")
     decision = DecisionLog(
         blogger_id=blogger.id,
         decision_type="profile",
         prompt_version="phase1-state-machine-v1",
         input_summary=session.collected_profile_json,
         decision=json.dumps({"blogger_id": blogger.id}, ensure_ascii=False),
-        reason="用户逐项回答并确认结构化画像",
+        reason=(
+            "用户核对并确认 Agent 格式化后的结构化表单"
+            if collection_mode == "batch_form"
+            else "用户逐项回答并确认结构化画像"
+        ),
     )
     db.add(decision)
     session.status = "completed"

@@ -4,6 +4,7 @@ import json
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.output_routes import get_output_service
@@ -23,6 +24,8 @@ from app.services.output_agent import FakeOutputAgent
 from app.services.output_service import OutputService
 from app.services.output_validation_service import OutputValidationService
 from app.services.task_memory_service import TaskMemoryService
+
+pytestmark = pytest.mark.daily
 
 
 def setup_api(db, tmp_path: Path):

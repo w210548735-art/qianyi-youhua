@@ -32,32 +32,43 @@
       <label for="bloggerSelect">当前画像</label>
       <select id="bloggerSelect"><option value="">暂无画像</option></select>
       <button id="refreshProfiles" type="button">刷新画像</button>
-      <button id="startSession" type="button">开始新画像采集</button>
+      <button id="newProfileForm" type="button">填写新画像</button>
     </div>
-    <p id="question">点击开始新画像采集，或选择已有画像。</p>
-    <div class="row">
-      <input id="answer" type="text" placeholder="输入回答">
-      <button id="sendAnswer" type="button" disabled>发送</button>
-      <button id="confirmProfile" type="button" disabled>确认画像</button>
-    </div>
+    <p id="question">填写下表后一次提交；系统只调用一次模型进行格式化，再由你确认创建。</p>
     <pre id="profileOutput"></pre>
-    <h3>确认后的画像编辑</h3>
-    <div id="profileForm" class="form-grid">
-      <label>名称<input id="profileName" type="text"></label>
-      <label>平台<input id="profilePlatform" type="text"></label>
-      <label>内容类型（逗号分隔）<input id="profileContentTypes" type="text"></label>
-      <label>风格<input id="profileStyle" type="text"></label>
-      <label>粉丝量级<input id="profileFollowerBand" type="text"></label>
-      <label>变现方式（逗号分隔）<input id="profileMonetizationTypes" type="text"></label>
-      <label>路线<input id="profileRoutes" type="text"></label>
-      <label>爆款主题<input id="profileViralTopic" type="text"></label>
-      <label>更新频率<input id="profileFrequency" type="text"></label>
-    </div>
-    <div class="row">
-      <button id="editProfile" type="button" disabled>载入画像编辑</button>
-      <button id="saveProfile" type="button" disabled>保存画像修改</button>
-      <button id="deleteProfile" type="button" disabled>删除当前画像</button>
-    </div>
+    <h3>快速画像表格（新建与确认后编辑共用）</h3>
+    <form id="quickProfileForm">
+      <table id="profileForm">
+        <thead><tr><th>字段</th><th>填写内容</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><th><label for="profileName">名称</label></th><td><input id="profileName" type="text" required maxlength="100"></td><td>必填</td></tr>
+          <tr><th><label for="profilePlatform">平台</label></th><td><input id="profilePlatform" type="text" required maxlength="50" placeholder="抖音、小红书、B站或多平台"></td><td>必填</td></tr>
+          <tr><th><label for="profileContentTypes">内容类型</label></th><td><input id="profileContentTypes" type="text" required placeholder="贵州美食，非遗，景区"></td><td>必填，多个值用逗号分隔</td></tr>
+          <tr><th><label for="profileStyle">创作风格</label></th><td><input id="profileStyle" type="text" required maxlength="50" placeholder="口播、vlog、测评"></td><td>必填</td></tr>
+          <tr><th><label for="profileFollowerBand">粉丝量级</label></th><td><input id="profileFollowerBand" type="text" required maxlength="50" placeholder="1万-10万"></td><td>必填</td></tr>
+          <tr><th><label for="profileMonetizationTypes">变现方式</label></th><td><input id="profileMonetizationTypes" type="text" required placeholder="商单，探店，带货"></td><td>必填，多个值用逗号分隔</td></tr>
+          <tr><th><label for="profileRoutes">常跑路线</label></th><td><input id="profileRoutes" type="text" placeholder="黔东南；未知可留空"></td><td>可选，不猜测</td></tr>
+          <tr><th><label for="profileViralTopic">表现较好的主题</label></th><td><input id="profileViralTopic" type="text" placeholder="酸汤鱼探店；未知可留空"></td><td>可选，不猜测</td></tr>
+          <tr><th><label for="profileFrequency">更新频率</label></th><td><input id="profileFrequency" type="text" maxlength="50" placeholder="日更、周更或不定期"></td><td>可选</td></tr>
+          <tr><th><label for="profileNotes">补充说明</label></th><td><textarea id="profileNotes" maxlength="2000" placeholder="仅用于帮助模型理解和规范格式，不会自动补造事实"></textarea></td><td>可选</td></tr>
+        </tbody>
+      </table>
+      <div class="row">
+        <button id="formatProfile" type="submit">提交表格并由 AI 格式化</button>
+        <button id="confirmProfile" type="button" disabled>确认并创建画像</button>
+        <button id="editProfile" type="button" disabled>重新载入当前画像</button>
+        <button id="saveProfile" type="button" disabled>保存当前画像修改</button>
+        <button id="deleteProfile" type="button" disabled>删除当前画像</button>
+      </div>
+    </form>
+    <details>
+      <summary>备用：使用多轮对话逐项采集</summary>
+      <div class="row">
+        <button id="startSession" type="button">开始多轮采集</button>
+        <input id="answer" type="text" placeholder="输入本轮回答">
+        <button id="sendAnswer" type="button" disabled>发送本轮回答</button>
+      </div>
+    </details>
     <p>当前博主 ID：<strong id="bloggerId">无</strong></p>
   </section>
 
@@ -495,6 +506,28 @@ function fillProfileForm(profile) {
   $('profileRoutes').value = profile.routes || '';
   $('profileViralTopic').value = profile.viral_topic || '';
   $('profileFrequency').value = profile.frequency || '';
+  $('profileNotes').value = '';
+}
+
+function profilePayload() {
+  return {
+    name: $('profileName').value.trim(),
+    platform: $('profilePlatform').value.trim(),
+    content_types: csv($('profileContentTypes').value),
+    style: $('profileStyle').value.trim(),
+    follower_band: $('profileFollowerBand').value.trim(),
+    monetization_types: csv($('profileMonetizationTypes').value),
+    routes: $('profileRoutes').value.trim() || null,
+    viral_topic: $('profileViralTopic').value.trim() || null,
+    frequency: $('profileFrequency').value.trim() || null,
+  };
+}
+
+function setProfileFormattingState(busy) {
+  const button = $('formatProfile');
+  button.disabled = busy;
+  button.textContent = busy ? 'AI 正在格式化，请稍候…' : '提交表格并由 AI 格式化';
+  $('quickProfileForm').setAttribute('aria-busy', String(busy));
 }
 
 function clearAssessmentDisplay() {
@@ -524,8 +557,10 @@ function clearAssessmentDisplay() {
 
 function setActiveProfile(profile) {
   bloggerId = profile && profile.id ? Number(profile.id) : null;
+  sessionId = null;
   $('bloggerId').textContent = bloggerId ? String(bloggerId) : '无';
   if (profile) fillProfileForm(profile);
+  $('confirmProfile').disabled = true;
   clearAssessmentDisplay();
   clearOutputDisplay();
   clearFeedbackDisplay();
@@ -566,10 +601,56 @@ $('bloggerSelect').onchange = async event => {
   } catch (error) { show('profileOutput', errorText(error)); }
 };
 
+$('newProfileForm').onclick = () => {
+  sessionId = null;
+  $('quickProfileForm').reset();
+  $('confirmProfile').disabled = true;
+  $('sendAnswer').disabled = true;
+  show('question', '填写完整表格后提交；模型只负责格式化，不会直接创建画像。');
+  show('profileOutput', '等待填写新画像。');
+  $('profileName').focus();
+};
+
+$('quickProfileForm').onsubmit = async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!form.reportValidity()) return;
+  const payload = {
+    ...profilePayload(),
+    request_id: `profile-batch-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    notes: $('profileNotes').value.trim() || null,
+  };
+  if (!payload.content_types.length || !payload.monetization_types.length) {
+    show('profileOutput', '错误：内容类型和变现方式至少各填写一项。');
+    return;
+  }
+  sessionId = null;
+  $('confirmProfile').disabled = true;
+  setProfileFormattingState(true);
+  show('question', '正在调用 deepseek-v4-flash 进行一次性格式化，请稍候…');
+  show('profileOutput', '请求已提交，等待模型返回结构化画像。');
+  try {
+    const data = await api('/api/v1/profile-sessions/batch-format', {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+    sessionId = data.session_id;
+    fillProfileForm(data.collected_profile);
+    show('profileOutput', data.collected_profile);
+    show('question', '格式化完成。请核对表格，确认无误后点击“确认并创建画像”。');
+    $('confirmProfile').disabled = false;
+  } catch (error) {
+    show('question', '格式化失败，表格内容已保留，可直接重试。');
+    show('profileOutput', errorText(error));
+  } finally {
+    setProfileFormattingState(false);
+  }
+};
+
 $('startSession').onclick = async () => {
   try {
     const data = await api('/api/v1/profile-sessions', {method: 'POST'});
     sessionId = data.session_id;
+    $('quickProfileForm').reset();
     show('question', data.question);
     show('profileOutput', data.collected_profile);
     $('answer').value = '';
@@ -596,13 +677,24 @@ $('sendAnswer').onclick = async () => {
 };
 
 $('confirmProfile').onclick = async () => {
+  if (!sessionId) return;
+  if (!$('quickProfileForm').reportValidity()) return;
   try {
-    const data = await api(`/api/v1/profile-sessions/${sessionId}/confirm`, {method: 'POST'});
+    $('confirmProfile').disabled = true;
+    $('confirmProfile').textContent = '正在确认…';
+    const data = await api(`/api/v1/profile-sessions/${sessionId}/confirm`, {
+      method: 'POST', body: JSON.stringify(profilePayload()),
+    });
     setActiveProfile(data);
     show('profileOutput', data);
     $('confirmProfile').disabled = true;
     await loadBloggers(data.id);
-  } catch (error) { show('profileOutput', errorText(error)); }
+  } catch (error) {
+    $('confirmProfile').disabled = false;
+    show('profileOutput', errorText(error));
+  } finally {
+    $('confirmProfile').textContent = '确认并创建画像';
+  }
 };
 
 $('editProfile').onclick = async () => {
@@ -616,17 +708,7 @@ $('editProfile').onclick = async () => {
 
 $('saveProfile').onclick = async () => {
   if (!bloggerId) return;
-  const payload = {
-    name: $('profileName').value.trim(),
-    platform: $('profilePlatform').value.trim(),
-    content_types: csv($('profileContentTypes').value),
-    style: $('profileStyle').value.trim(),
-    follower_band: $('profileFollowerBand').value.trim(),
-    monetization_types: csv($('profileMonetizationTypes').value),
-    routes: $('profileRoutes').value.trim() || null,
-    viral_topic: $('profileViralTopic').value.trim() || null,
-    frequency: $('profileFrequency').value.trim() || null,
-  };
+  const payload = profilePayload();
   try {
     const data = await api(`/api/v1/bloggers/${bloggerId}`, {
       method: 'PUT', body: JSON.stringify(payload),

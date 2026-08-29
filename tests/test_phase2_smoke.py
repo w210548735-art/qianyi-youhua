@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+
+pytestmark = pytest.mark.daily
 
 
 def test_phase2_demo_page_contains_assessment_controls_and_routes():

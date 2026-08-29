@@ -5,11 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
 from app.models import Place
+
+pytestmark = pytest.mark.migration
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 INITIAL_TABLES = {

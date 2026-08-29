@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.db.session import get_db
@@ -10,6 +11,8 @@ from app.models import Blogger
 from app.services.build_service import LibraryBuildService
 from app.services.deepseek_client import FakeDeepSeekClient
 from app.services.embedding_service import FakeEmbeddingService
+
+pytestmark = pytest.mark.daily
 
 
 def create_blogger(db) -> Blogger:

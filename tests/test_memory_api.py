@@ -20,6 +20,8 @@ from app.services.embedding_service import FakeEmbeddingService
 from app.services.memory_service import MemoryService
 from app.services.task_memory_service import TaskMemoryService
 
+pytestmark = pytest.mark.daily
+
 
 def make_blogger(db, name: str) -> Blogger:
     blogger = Blogger(

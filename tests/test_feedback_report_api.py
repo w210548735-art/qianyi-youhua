@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.feedback_routes import get_feedback_service
@@ -17,6 +18,8 @@ from app.services.memory_service import MemoryService
 from app.services.report_agent import FakeReportAgent
 from app.services.report_service import ReportService
 from app.services.task_memory_service import TaskMemoryService
+
+pytestmark = pytest.mark.daily
 
 
 def _seed(db):

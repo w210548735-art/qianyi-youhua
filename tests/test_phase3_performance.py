@@ -3,10 +3,14 @@ from __future__ import annotations
 import time
 from datetime import date, timedelta
 
+import pytest
+
 from app.models import Blogger, Output, Schedule
 from app.services.output_agent import FakeOutputAgent
 from app.services.output_service import OutputService
 from app.services.schedule_service import ScheduleService
+
+pytestmark = pytest.mark.performance
 
 
 def make_blogger(db, name: str, frequency: str = "日更") -> Blogger:

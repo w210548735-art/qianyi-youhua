@@ -22,6 +22,8 @@ from app.core.config import settings
 from app.services.deepseek_client import DeepSeekClient, GeneratedAsset
 from app.services.embedding_service import EmbeddingService
 
+pytestmark = pytest.mark.real_integration
+
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 

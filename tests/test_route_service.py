@@ -195,6 +195,7 @@ def test_route_cross_blogger_place_is_hidden(db, tmp_path: Path):
     assert caught.value.status_code == 404
 
 
+@pytest.mark.performance
 def test_rank_1000_places_under_one_second_without_database_calls(db):
     blogger = Blogger(
         name="性能博主",

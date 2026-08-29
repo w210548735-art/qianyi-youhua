@@ -13,6 +13,8 @@ from app.services.blogger_service import BloggerNotFoundError, BloggerService
 from app.services.embedding_service import FakeEmbeddingService
 from app.services.memory_service import MemoryNotFoundError, MemoryService
 
+pytestmark = pytest.mark.daily
+
 
 def _blogger(db, name: str) -> Blogger:
     blogger = Blogger(

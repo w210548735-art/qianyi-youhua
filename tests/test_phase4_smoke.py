@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+
+pytestmark = pytest.mark.daily
 
 
 def test_phase4_demo_has_real_feedback_indicator_report_wiring() -> None:

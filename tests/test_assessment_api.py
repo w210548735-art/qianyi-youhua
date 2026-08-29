@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.assessment_routes import get_assessment_service
@@ -19,6 +20,8 @@ from app.services.embedding_service import FakeEmbeddingService
 from app.services.library_analysis_service import LibraryAnalysisService
 from app.services.memory_service import MemoryService
 from app.services.task_memory_service import TaskMemoryService
+
+pytestmark = pytest.mark.daily
 
 
 def make_blogger(db, name: str) -> Blogger:

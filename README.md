@@ -94,9 +94,23 @@
 
 ## 测试与质量门禁
 
-- 全量测试与覆盖率：
+- 日常快速回归（默认命令，51 项代表性用例）：
 
-  `E:\Anaconda\envs\DL\python.exe -m pytest -q --cov=app\services --cov-report=term-missing --cov-fail-under=80 --basetemp E:\Guikesong\.pytest-run`
+  `E:\Anaconda\envs\DL\python.exe -m pytest -q --basetemp E:\Guikesong\.pytest-fast`
+
+  默认覆盖画像采集、博主生命周期、资产、记忆、第二至四阶段关键 API、来源边界和页面烟雾测试。实测约 2 分钟；详细 Service 组合、历史迁移往返、千条性能门禁和真实模型集成改为独立门禁，不在每次小改动后重复执行。
+
+- 完整离线回归与覆盖率（提交前或阶段验收）：
+
+  `E:\Anaconda\envs\DL\python.exe -m pytest -m "not real_integration" -q --cov=app\services --cov-report=term-missing --cov-fail-under=80 --basetemp E:\Guikesong\.pytest-run`
+
+- 迁移门禁（仅修改 `app/models` 或 `migrations` 时运行）：
+
+  `E:\Anaconda\envs\DL\python.exe -m pytest -m migration -q --basetemp E:\Guikesong\.pytest-migration`
+
+- 完整离线门禁（合并前或阶段验收运行，230 项，包含详细服务、迁移和性能）：
+
+  `E:\Anaconda\envs\DL\python.exe -m pytest -m "not real_integration" -q --basetemp E:\Guikesong\.pytest-full`
 
 - 静态检查：
 
@@ -104,23 +118,23 @@
 
   `E:\Anaconda\envs\DL\python.exe -m mypy app`
 
-- 性能验收：
+- 性能验收（仅性能相关修改或阶段验收运行）：
 
-  `E:\Anaconda\envs\DL\python.exe -m pytest tests\test_performance.py tests\test_phase2_performance.py tests\test_phase3_performance.py tests\test_phase4_performance.py tests\test_route_service.py::test_rank_1000_places_under_one_second_without_database_calls -q -s --basetemp E:\Guikesong\.pytest-performance`
+  `E:\Anaconda\envs\DL\python.exe -m pytest -m performance -q -s --basetemp E:\Guikesong\.pytest-performance`
 
 - 默认离线、显式启用的真实集成 smoke：
 
-  `set RUN_REAL_EMBEDDING=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_real_integrations.py -q -rs`
+  `set RUN_REAL_EMBEDDING=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_real_integrations.py -m real_integration -q -rs`
 
-  `set RUN_REAL_DEEPSEEK=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_real_integrations.py -q -rs`
+  `set RUN_REAL_DEEPSEEK=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_real_integrations.py -m real_integration -q -rs`
 
-  `set RUN_PHASE2_REAL_BGE=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_phase2_real_integration.py::test_phase2_real_bge_cuda_and_dimension -q -rs`
+  `set RUN_PHASE2_REAL_BGE=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_phase2_real_integration.py::test_phase2_real_bge_cuda_and_dimension -m real_integration -q -rs`
 
-  `set RUN_PHASE2_REAL_DEEPSEEK=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_phase2_real_integration.py::test_phase2_real_deepseek_assessment_structure -q -rs`
+  `set RUN_PHASE2_REAL_DEEPSEEK=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_phase2_real_integration.py::test_phase2_real_deepseek_assessment_structure -m real_integration -q -rs`
 
-  `set RUN_PHASE3_REAL_INTEGRATIONS=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_phase3_real_integration.py -q -rs`
+  `set RUN_PHASE3_REAL_INTEGRATIONS=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_phase3_real_integration.py -m real_integration -q -rs`
 
-  `set RUN_PHASE4_REAL_INTEGRATIONS=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_phase4_real_integration.py -q -rs`
+  `set RUN_PHASE4_REAL_INTEGRATIONS=1 && E:\Anaconda\envs\DL\python.exe -m pytest tests\test_phase4_real_integration.py -m real_integration -q -rs`
 
   未设置开关时不会加载真实模型或调用外部 API。真实 DeepSeek smoke 仅在本地密钥和网络均可用时执行，测试不会输出密钥。
 

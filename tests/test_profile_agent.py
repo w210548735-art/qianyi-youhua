@@ -11,6 +11,8 @@ from app.services.profile_agent import (
     ProfileAgentError,
 )
 
+pytestmark = pytest.mark.daily
+
 
 def test_fake_agent_extracts_multiple_fields_and_returns_targeted_question():
     agent = FakeProfileAgent()

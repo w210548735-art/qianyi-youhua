@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+
+pytestmark = pytest.mark.daily
 
 
 def test_phase3_demo_page_has_real_wired_controls_and_simulation_boundary():

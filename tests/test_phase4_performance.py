@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 from datetime import date, datetime
 
+import pytest
+
 from app.models import Blogger, FeedbackRun, Metric, Output, Place, Report, Schedule
 from app.services.feedback_analysis_service import FeedbackAnalysisService
 from app.services.feedback_service import FeedbackService
@@ -10,6 +12,8 @@ from app.services.indicator_service import IndicatorService
 from app.services.report_data_service import ReportDataService
 from app.services.report_service import ReportService
 from app.services.route_service import RouteService
+
+pytestmark = pytest.mark.performance
 
 
 def _blogger(db) -> Blogger:

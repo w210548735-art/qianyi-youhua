@@ -4,11 +4,14 @@ import hashlib
 import json
 from time import perf_counter
 
+import pytest
 from sqlalchemy import select
 
 from app.models import Assessment, Asset, AssetEmbedding, Blogger
 from app.services.embedding_service import FakeEmbeddingService
 from app.services.library_analysis_service import LibraryAnalysisService
+
+pytestmark = pytest.mark.performance
 
 
 def make_blogger(db) -> Blogger:

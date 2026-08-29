@@ -24,6 +24,8 @@ from app.models import (
     Schedule,
 )
 
+pytestmark = pytest.mark.migration
+
 ROOT_DIR = Path(__file__).resolve().parents[1]
 PHASE1_TABLES = {
     "blogger",

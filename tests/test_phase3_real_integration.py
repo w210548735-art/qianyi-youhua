@@ -12,6 +12,8 @@ from app.services.embedding_service import EmbeddingService
 from app.services.output_agent import DeepSeekOutputAgent, OutputAgentError
 from app.services.output_validation_service import OutputValidationService
 
+pytestmark = pytest.mark.real_integration
+
 _TRUTHY = {"1", "true", "yes", "on"}
 
 

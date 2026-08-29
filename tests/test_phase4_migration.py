@@ -30,6 +30,8 @@ from app.models import (
     ReportEvidence,
 )
 
+pytestmark = pytest.mark.migration
+
 ROOT_DIR = Path(__file__).resolve().parents[1]
 PHASE4_TABLES = {
     "feedback_run",

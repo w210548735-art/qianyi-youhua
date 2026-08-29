@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+
+pytestmark = pytest.mark.daily
 
 
 def test_demo_page_health_and_memory_openapi():
@@ -22,6 +25,8 @@ def test_demo_page_health_and_memory_openapi():
     assert "长期记忆召回与 Agent 上下文" in page.text
     for control in (
         "bloggerSelect",
+        "quickProfileForm",
+        "formatProfile",
         "editProfile",
         "deleteProfile",
         "assetForm",
@@ -37,6 +42,7 @@ def test_demo_page_health_and_memory_openapi():
 
     expected_routes = {
         ("/api/v1/profile-sessions", "post"),
+        ("/api/v1/profile-sessions/batch-format", "post"),
         ("/api/v1/profile-sessions/{session_id}/profile", "put"),
         ("/api/v1/profile-sessions/{session_id}/confirm", "post"),
         ("/api/v1/bloggers", "get"),

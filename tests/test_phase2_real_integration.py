@@ -12,6 +12,8 @@ from app.services.assessment_agent import AssessmentAgentError, DeepSeekAssessme
 from app.services.assessment_validation_service import AssessmentValidationService
 from app.services.embedding_service import EmbeddingService
 
+pytestmark = pytest.mark.real_integration
+
 _TRUTHY = {"1", "true", "yes", "on"}
 
 

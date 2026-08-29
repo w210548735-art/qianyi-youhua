@@ -4,9 +4,13 @@ import hashlib
 import json
 from time import perf_counter
 
+import pytest
+
 from app.models import Asset, AssetEmbedding, Blogger
 from app.services.embedding_service import FakeEmbeddingService
 from app.services.search_service import AssetSearchService
+
+pytestmark = pytest.mark.performance
 
 
 def _blogger(db) -> Blogger:
