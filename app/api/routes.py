@@ -73,6 +73,29 @@ QUESTIONS = {
 AMBIGUOUS_ANSWERS = {"不知道", "不清楚", "随便", "都行", "不确定"}
 
 
+def _fixed_clarification(field: str) -> str:
+    """返回与后端当前字段严格绑定的澄清问题。"""
+
+    return f"请尽量具体说明“{QUESTIONS[field]}”；如仍不确定，可再次回答原内容。"
+
+
+def _is_ambiguous_value(value: object) -> bool:
+    if isinstance(value, str):
+        return value.strip() in AMBIGUOUS_ANSWERS
+    if isinstance(value, list) and len(value) == 1:
+        return isinstance(value[0], str) and value[0].strip() in AMBIGUOUS_ANSWERS
+    return False
+
+
+def _next_missing_field(profile: dict, deferred_fields: dict) -> str | None:
+    """优先推进未延后的缺失字段，最后再回到仍未解决的字段。"""
+
+    missing = [item for item in QUESTION_ORDER if not profile.get(item)]
+    return next((item for item in missing if not deferred_fields.get(item)), None) or (
+        missing[0] if missing else None
+    )
+
+
 def get_embedding_service() -> EmbeddingService:
     return EmbeddingService()
 
@@ -146,6 +169,7 @@ def answer_profile_question(
     profile = json.loads(session.collected_profile_json)
     field = session.current_question
     clarifications = profile.setdefault("_clarifications", {})
+    deferred_fields = profile.setdefault("_deferred_fields", {})
     processed_requests = profile.setdefault("_processed_requests", {})
     request_id = body.request_id or hashlib.sha256(
         f"{session.id}|{field}|{session.collected_profile_json}|{body.message}".encode("utf-8")
@@ -208,13 +232,17 @@ def answer_profile_question(
             },
         ) from exc
 
-    profile.update(agent_result.extracted_fields)
+    extracted_fields = dict(agent_result.extracted_fields)
+    for extracted_field, value in tuple(extracted_fields.items()):
+        if extracted_field in QUESTION_ORDER and _is_ambiguous_value(value):
+            extracted_fields.pop(extracted_field)
+    profile.update(extracted_fields)
+    if field in extracted_fields:
+        deferred_fields.pop(field, None)
     ambiguous_current = field in agent_result.ambiguous_fields or body.message.strip() in AMBIGUOUS_ANSWERS
     if ambiguous_current and clarifications.get(field, 0) == 0:
         clarifications[field] = 1
-        clarification = agent_result.follow_up_question or (
-            f"请尽量具体说明“{QUESTIONS[field]}”；如仍不确定，可再次回答原内容。"
-        )
+        clarification = _fixed_clarification(field)
         db.add(ConversationMessage(session_id=session.id, role="user", content=body.message))
         db.add(ConversationMessage(session_id=session.id, role="assistant", content=clarification))
         response = {
@@ -238,25 +266,78 @@ def answer_profile_question(
                     {"session_id": session.id, "request_id": request_id, "message": body.message},
                     ensure_ascii=False,
                 ),
-                decision=json.dumps(agent_result.to_dict(), ensure_ascii=False),
+                decision=json.dumps(
+                    {
+                        **agent_result.to_dict(),
+                        "next_field": field,
+                        "adopted_question": clarification,
+                    },
+                    ensure_ascii=False,
+                ),
                 reason="画像 Agent 判定当前字段模糊并执行唯一一次定向追问",
             )
         )
         db.commit()
         return response
 
-    if field not in profile:
+    extracted_current = field in extracted_fields
+    extracted_other_fields = bool(extracted_fields) and not extracted_current
+    if extracted_other_fields:
+        current_question_text = QUESTIONS[field]
+        db.add(ConversationMessage(session_id=session.id, role="user", content=body.message))
+        db.add(ConversationMessage(session_id=session.id, role="assistant", content=current_question_text))
+        response = {
+            "session_id": session.id,
+            "status": session.status,
+            "question": current_question_text,
+            "request_id": request_id,
+            "retryable": True,
+            "collected_profile": {
+                key: value for key, value in profile.items() if not key.startswith("_")
+            },
+        }
+        processed_requests[request_id] = response
+        session.collected_profile_json = json.dumps(profile, ensure_ascii=False)
+        db.add(
+            DecisionLog(
+                blogger_id=None,
+                decision_type="profile_agent_turn",
+                prompt_version="deepseek-v4-flash",
+                input_summary=json.dumps(
+                    {"session_id": session.id, "request_id": request_id, "message": body.message},
+                    ensure_ascii=False,
+                ),
+                decision=json.dumps(
+                    {
+                        **agent_result.to_dict(),
+                        "next_field": field,
+                        "adopted_question": current_question_text,
+                    },
+                    ensure_ascii=False,
+                ),
+                reason="Agent 抽取了其他合法字段，但未回答后端当前字段；保留抽取并继续询问当前字段",
+            )
+        )
+        db.commit()
+        return response
+
+    if ambiguous_current and not extracted_fields:
+        # 第二次仍无法给出有效答案时允许流程先继续，但不把“不知道”等内容
+        # 保存为真实画像值；采集末尾会重新回到该缺失字段，禁止带缺失必填项确认。
+        deferred_fields[field] = True
+    elif field not in profile:
         profile[field] = (
             split_values(body.message)
             if field in {"content_types", "monetization_types"}
             else body.message.strip()
         )
+        deferred_fields.pop(field, None)
     db.add(ConversationMessage(session_id=session.id, role="user", content=body.message))
-    remaining = [item for item in QUESTION_ORDER if not profile.get(item)]
-    if remaining:
-        next_field = remaining[0]
+    next_field = _next_missing_field(profile, deferred_fields)
+    next_question: str | None
+    if next_field:
         session.current_question = next_field
-        next_question = agent_result.follow_up_question or QUESTIONS[next_field]
+        next_question = QUESTIONS[next_field]
         db.add(ConversationMessage(session_id=session.id, role="assistant", content=next_question))
     else:
         session.status = "confirming"
@@ -274,6 +355,7 @@ def answer_profile_question(
                 {
                     **agent_result.to_dict(),
                     "next_field": session.current_question if session.status == "collecting" else None,
+                    "adopted_question": next_question,
                 },
                 ensure_ascii=False,
             ),
