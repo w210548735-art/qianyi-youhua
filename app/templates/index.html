@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>黔衣有话 · 第一至四阶段演示</title>
+  <title>黔衣有话 · MVP 功能演示</title>
   <style>
     body { font-family: sans-serif; max-width: 1100px; margin: 20px auto; line-height: 1.5; }
     section { border: 1px solid #999; padding: 14px; margin-bottom: 16px; }
@@ -23,7 +23,7 @@
   </style>
 </head>
 <body>
-  <h1>黔衣有话 · 第一至四阶段演示</h1>
+  <h1>黔衣有话 · MVP 功能演示</h1>
   <p>画像采集 → DeepSeek 建库 → 本地 BGE 向量化 → 混合检索 → 决策留痕 → Agent 记忆</p>
 
   <section>
@@ -258,8 +258,8 @@
   </section>
 
   <section id="outputSection">
-    <h2>9. 内容产出与执行（第三阶段）</h2>
-    <p><strong>边界说明：</strong>发布和数据回收均为本地模拟/手工记录，不代表真实平台发布或平台取数；本阶段不会自动修改画像、资产或地点收益。</p>
+    <h2>9. 内容产出</h2>
+    <p><strong>MVP 范围：</strong>当前保留脚本、分镜和路线推荐；排期、提醒、模拟发布和指标回收已暂停使用。</p>
     <div class="row">
       <label>采用体检 <select id="outputAssessmentSelect" disabled><option value="">请先完成体检</option></select></label>
       <label>主题/指令 <input id="outputTopic" type="text" value="制作一条贵州文旅口播"></label>
@@ -286,8 +286,9 @@
     </div>
     <pre id="routeStatus">尚未生成路线。</pre>
 
-    <h3>排期、提醒与模拟发布</h3>
-    <div class="row">
+    <div id="mvpPausedExecution" hidden>
+      <h3>排期、提醒与模拟发布（MVP 已暂停）</h3>
+      <div class="row">
       <label>计划日期 <input id="schedulePlanDate" type="date"></label>
       <label>平台 <input id="schedulePlatform" type="text" value="抖音"></label>
       <label>内容类型 <select id="scheduleContentType"><option value="script">脚本</option><option value="storyboard">分镜</option><option value="route_rec">路线</option></select></label>
@@ -297,11 +298,11 @@
       <button id="scanReminders" type="button" disabled>扫描到期提醒</button>
       <button id="simulatePublish" type="button" disabled>模拟发布</button>
       <button id="cancelSchedule" type="button" disabled>取消排期</button>
-    </div>
-    <pre id="scheduleStatus">尚未创建排期。</pre>
+      </div>
+      <pre id="scheduleStatus">尚未创建排期。</pre>
 
-    <h3>手工/模拟原始指标回收</h3>
-    <div class="row">
+      <h3>手工/模拟原始指标回收（MVP 已暂停）</h3>
+      <div class="row">
       <label>来源 <select id="metricSource"><option value="simulated">模拟</option><option value="manual">手工</option></select></label>
       <label>播放 <input id="metricViews" type="number" min="0" value="0"></label>
       <label>点赞 <input id="metricLikes" type="number" min="0" value="0"></label>
@@ -313,11 +314,17 @@
       <label><input id="metricUserConfirmed" type="checkbox"> 用户确认的真实手工数据</label>
       <button id="collectMetrics" type="button" disabled>回收原始指标</button>
       <button id="loadMetrics" type="button" disabled>查看原始指标</button>
+      </div>
+      <pre id="metricStatus">尚未回收指标。</pre>
     </div>
-    <pre id="metricStatus">尚未回收指标。</pre>
   </section>
 
-  <section id="feedbackReportSection">
+  <section id="mvpPausedModulesNotice">
+    <h2>当前 MVP 暂停模块</h2>
+    <p>反馈闭环、经营指标、历史观察、经营报告、图表和报告对比暂不参与当前 MVP 演示或更新；既有历史数据仍保留。</p>
+  </section>
+
+  <section id="feedbackReportSection" hidden>
     <h2>10. 反馈闭环与经营报告（第四阶段）</h2>
     <p><strong>证据边界：</strong>manual 是用户明确录入的数据；simulated 只用于演示。候选在确认前不会改变画像、三库或地点。报告区分 actual、estimated、data_insufficient 与 simulation_only；模拟预览不计入实际流量。</p>
     <h3>反馈分析、候选确认与拒绝</h3>
@@ -412,6 +419,13 @@ const profileDependentControls = [
   'initializeIndicators', 'recomputeIndicators', 'loadIndicators',
   'generateReport', 'loadReports',
 ];
+const mvpPausedControls = [
+  'createSchedule', 'loadSchedules', 'scanReminders', 'simulatePublish', 'cancelSchedule',
+  'collectMetrics', 'loadMetrics', 'refreshFeedbackInputs', 'startFeedback', 'loadFeedbackRuns',
+  'loadFeedbackEvidence', 'loadFeedbackCandidates', 'confirmFeedback', 'rejectFeedback',
+  'retryFeedback', 'initializeIndicators', 'recomputeIndicators', 'loadIndicators',
+  'generateReport', 'loadReports', 'compareReports',
+];
 const taskDependentControls = [
   'appendTaskMessage', 'checkpointTask', 'recoverTask', 'completeTask', 'loadTask',
 ];
@@ -421,6 +435,7 @@ function setProfileControls(enabled) {
   setAssessmentProfileControls(enabled);
   setOutputControls(enabled);
   setFeedbackControls(enabled);
+  mvpPausedControls.forEach(id => $(id).disabled = true);
   if (!enabled) {
     taskDependentControls.forEach(id => $(id).disabled = true);
     $('taskSelect').disabled = true;
@@ -440,6 +455,8 @@ function setOutputControls(enabled) {
   ['simulatePublish', 'cancelSchedule', 'collectMetrics'].forEach(
     id => $(id).disabled = !enabled || !scheduleId,
   );
+  ['createSchedule', 'loadSchedules', 'scanReminders', 'simulatePublish', 'cancelSchedule',
+   'collectMetrics', 'loadMetrics'].forEach(id => $(id).disabled = true);
 }
 
 function setFeedbackControls(enabled) {
@@ -448,6 +465,10 @@ function setFeedbackControls(enabled) {
     .forEach(id => $(id).disabled = !enabled || !feedbackRunId);
   ['reportLeftSelect', 'reportRightSelect'].forEach(id => $(id).disabled = !enabled);
   $('compareReports').disabled = !enabled || reportRows.length < 2;
+  ['refreshFeedbackInputs', 'startFeedback', 'loadFeedbackRuns', 'loadFeedbackEvidence',
+   'loadFeedbackCandidates', 'confirmFeedback', 'rejectFeedback', 'retryFeedback',
+   'initializeIndicators', 'recomputeIndicators', 'loadIndicators', 'generateReport',
+   'loadReports', 'compareReports'].forEach(id => $(id).disabled = true);
 }
 
 function clearFeedbackDisplay() {

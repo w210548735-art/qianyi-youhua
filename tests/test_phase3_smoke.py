@@ -8,7 +8,7 @@ from app.main import app
 pytestmark = pytest.mark.daily
 
 
-def test_phase3_demo_page_has_real_wired_controls_and_simulation_boundary():
+def test_phase3_demo_keeps_content_generation_and_hides_paused_execution_modules():
     response = TestClient(app).get("/")
     assert response.status_code == 200
     body = response.text
@@ -36,8 +36,9 @@ def test_phase3_demo_page_has_real_wired_controls_and_simulation_boundary():
         "/metrics",
     ):
         assert path in body
-    assert "不代表真实平台发布" in body
-    assert "不会自动修改画像、资产或地点收益" in body
+    assert 'id="mvpPausedExecution" hidden' in body
+    assert "排期、提醒、模拟发布和指标回收已暂停使用" in body
+    assert "mvpPausedControls.forEach" in body
     assert "经营报告、反馈学习和真实平台发布仍未实现" in body
 
 

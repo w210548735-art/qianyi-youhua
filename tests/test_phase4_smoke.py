@@ -8,7 +8,7 @@ from app.main import app
 pytestmark = pytest.mark.daily
 
 
-def test_phase4_demo_has_real_feedback_indicator_report_wiring() -> None:
+def test_phase4_demo_preserves_legacy_wiring_but_hides_paused_mvp_modules() -> None:
     response = TestClient(app).get("/")
     assert response.status_code == 200
     page = response.text
@@ -36,6 +36,9 @@ def test_phase4_demo_has_real_feedback_indicator_report_wiring() -> None:
         "/reports/compare",
     ):
         assert path in page
+    assert 'id="feedbackReportSection" hidden' in page
+    assert 'id="mvpPausedModulesNotice"' in page
+    assert "反馈闭环、经营指标、历史观察、经营报告、图表和报告对比暂不参与当前 MVP" in page
     assert "manual" in page and "simulated" in page
     assert "actual" in page and "estimated" in page and "data_insufficient" in page
     assert "simulation_only" in page and "模拟预览" in page and "不计入实际流量" in page
