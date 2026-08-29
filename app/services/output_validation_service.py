@@ -57,6 +57,7 @@ _FORBIDDEN_COMMERCIAL_KEYS = {
 }
 _COMMERCIAL_TEXT = re.compile(r"(?:¥|￥|\b\d+(?:\.\d+)?\s*元|价格\s*\d|成本\s*\d|收益\s*\d|报价\s*\d)", re.I)
 _DATE_FORMATS = ("%Y-%m-%d", "%Y/%m/%d")
+_EQUIVALENT_SEPARATOR = re.compile(r"[,，、/+|;；]+")
 
 
 def _list(value: Any) -> list[Any]:
@@ -122,10 +123,19 @@ def _snapshot_source_ids(snapshot: Mapping[str, Any], assets: Iterable[Mapping[s
     return result
 
 
+def _equivalent_tokens(value: Any) -> set[str]:
+    return {
+        item.strip().casefold()
+        for item in _EQUIVALENT_SEPARATOR.split(_text(value))
+        if item and item.strip()
+    }
+
+
 def _profile_platforms(snapshot: Mapping[str, Any]) -> set[str]:
     value = _profile(snapshot).get("platform", snapshot.get("platform"))
-    values = _list(value) if isinstance(value, (list, tuple)) else re.split(r"[,，、/|]", _text(value))
-    return {item.strip().lower() for item in values if item and item.strip()}
+    if isinstance(value, (list, tuple)):
+        return {token for item in value for token in _equivalent_tokens(item)}
+    return _equivalent_tokens(value)
 
 
 def _profile_style(snapshot: Mapping[str, Any]) -> str:
@@ -413,17 +423,20 @@ class OutputValidationService:
     ) -> None:
         platforms = _profile_platforms(snapshot)
         platform = _text(output.get("platform"))
-        if platforms and platform.lower() not in platforms:
+        actual_platforms = _equivalent_tokens(platform)
+        if len(actual_platforms) != 1 or (platforms and not actual_platforms.issubset(platforms)):
             raise OutputValidationError("OUTPUT_INVALID_JSON", f"输出平台与当前画像不匹配: {platform}")
         if check_style:
             expected = _profile_style(snapshot)
             actual = _text(output.get("style"))
-            if (
-                expected
-                and actual
-                and expected.lower() not in actual.lower()
-                and actual.lower() not in expected.lower()
-            ):
+            expected_tokens = _equivalent_tokens(expected)
+            actual_tokens = _equivalent_tokens(actual)
+            equivalent = (
+                expected_tokens == actual_tokens
+                or expected_tokens.issubset(actual_tokens)
+                or actual_tokens.issubset(expected_tokens)
+            )
+            if expected and actual and (not expected_tokens or not actual_tokens or not equivalent):
                 raise OutputValidationError("OUTPUT_INVALID_JSON", f"输出风格与当前画像不匹配: {actual}")
 
     def _reject_commercial_data(self, value: Any) -> None:

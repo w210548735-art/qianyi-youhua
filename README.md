@@ -145,3 +145,13 @@
 ## 当前进度
 
 详见 [开发进度](docs/DEVELOPMENT_PROGRESS.md)。
+
+## 前端工作台
+
+前端位于 [`guikesong-creator-agent-main`](guikesong-creator-agent-main/)，与 FastAPI 后端保持独立部署。前端采用 Next.js App Router、React、TypeScript、Vite/vinext 和原生 CSS；后端采用 Python、FastAPI、SQLAlchemy、SQLite、Alembic，并由后端统一调用 DeepSeek。
+
+前端默认请求 `/api/v1`，本地开发服务器通过 `API_PROXY_TARGET` 代理到 `http://127.0.0.1:8000`。普通多轮对话使用 `POST /api/v1/bloggers/{blogger_id}/chat`，默认演示博主为 `id=2`；画像、三库、体检、脚本继续使用对应的后端资源接口。完整前端启动、接口和验证说明见 [`guikesong-creator-agent-main/README.md`](guikesong-creator-agent-main/README.md)。
+
+## 发布安全检查
+
+提交前必须确认以下内容没有被加入暂存区：`deepseek_apikey.txt`、`.env*`、SQLite 数据库、`data/`、本地模型缓存、测试缓存、日志和构建产物。仓库根目录及前端目录的 `.gitignore` 已覆盖这些本地文件；DeepSeek Key 只从后端本地文件读取，不在前端代码中保存。

@@ -70,6 +70,50 @@ def test_validation_accepts_script_and_normalizes_single_source_refs():
     assert normalized["source_refs"][0]["asset_id"] == 11
 
 
+def test_validation_accepts_equivalent_style_separators_and_single_profile_platform():
+    service = OutputValidationService()
+    compound_snapshot = copy.deepcopy(snapshot())
+    compound_snapshot["profile"]["style"] = "第一人称口播、沉浸式vlog"
+    compound_snapshot["profile"]["platform"] = "抖音、B站"
+    script = valid_script()
+    script["style"] = "第一人称口播+沉浸式vlog"
+    script["platform"] = "抖音"
+
+    normalized = service.validate_script(script, compound_snapshot)
+
+    assert normalized["style"] == "第一人称口播+沉浸式vlog"
+    assert normalized["platform"] == "抖音"
+
+
+@pytest.mark.parametrize("platform", ["抖音+B站", "抖音、小红书"])
+def test_validation_rejects_multi_platform_output(platform: str):
+    service = OutputValidationService()
+    multi_platform_snapshot = copy.deepcopy(snapshot())
+    multi_platform_snapshot["profile"]["platform"] = "抖音、B站、小红书"
+    script = valid_script()
+    script["platform"] = platform
+
+    with pytest.raises(OutputValidationError) as error:
+        service.validate_script(script, multi_platform_snapshot)
+
+    assert error.value.code == "OUTPUT_INVALID_JSON"
+    assert "输出平台与当前画像不匹配" in error.value.message
+
+
+def test_validation_still_rejects_unrelated_style_after_separator_normalization():
+    service = OutputValidationService()
+    compound_snapshot = copy.deepcopy(snapshot())
+    compound_snapshot["profile"]["style"] = "第一人称口播、沉浸式vlog"
+    script = valid_script()
+    script["style"] = "直播带货+剧情演绎"
+
+    with pytest.raises(OutputValidationError) as error:
+        service.validate_script(script, compound_snapshot)
+
+    assert error.value.code == "OUTPUT_INVALID_JSON"
+    assert "输出风格与当前画像不匹配" in error.value.message
+
+
 @pytest.mark.parametrize(
     ("mutation", "expected_code"),
     [

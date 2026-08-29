@@ -35,11 +35,13 @@ class OutputAgentError(RuntimeError):
         *,
         retryable: bool = False,
         request_id: str | None = None,
+        missing_fields: Sequence[str] | None = None,
     ) -> None:
         self.code = code
         self.message = message
         self.retryable = retryable
         self.request_id = request_id
+        self.missing_fields = list(missing_fields or [])
         super().__init__(f"{code}: {message}")
 
 
@@ -463,10 +465,19 @@ def _ensure_generated_structure(kind: str, payload: Mapping[str, Any], request_i
 
     if kind == "script":
         required_text = ("category", "title", "hook", "body", "ending", "style", "platform")
-        if any(not _text(payload.get(field)) for field in required_text):
-            raise OutputAgentError("OUTPUT_INVALID_JSON", "脚本缺少必填文本字段", request_id=request_id)
-        if not _as_list(payload.get("tags")) or not _as_list(payload.get("source_refs")):
-            raise OutputAgentError("OUTPUT_INVALID_JSON", "脚本缺少 tags 或 source_refs", request_id=request_id)
+        missing_fields = [field for field in required_text if not _text(payload.get(field))]
+        if not _as_list(payload.get("tags")):
+            missing_fields.append("tags")
+        if not _as_list(payload.get("source_refs")):
+            missing_fields.append("source_refs")
+        if missing_fields:
+            joined = ", ".join(missing_fields)
+            raise OutputAgentError(
+                "OUTPUT_INVALID_JSON",
+                f"脚本字段缺失或为空: {joined}",
+                request_id=request_id,
+                missing_fields=missing_fields,
+            )
         return
     if kind == "storyboard":
         shots = _as_list(payload.get("shots"))
@@ -497,6 +508,51 @@ def _repair_requirement(kind: str) -> str:
         "route_rec": "返回非空 stops，每项只引用快照内 place_id；不要补造商业字段",
     }
     return requirements.get(kind, "返回完整合法 JSON")
+
+
+def _output_contract(kind: str) -> dict[str, Any]:
+    """返回首轮模型必须遵守的显式结构契约，不生成任何业务文案。"""
+
+    if kind != "script":
+        return {"requirement": _repair_requirement(kind)}
+    required_fields = [
+        "category",
+        "title",
+        "hook",
+        "body",
+        "ending",
+        "tags",
+        "style",
+        "platform",
+        "source_refs",
+    ]
+    text_property = {"type": "string", "non_empty": True}
+    return {
+        "type": "object",
+        "required_fields": required_fields,
+        "additional_properties": True,
+        "properties": {
+            "category": dict(text_property),
+            "title": dict(text_property),
+            "hook": dict(text_property),
+            "body": dict(text_property),
+            "ending": dict(text_property),
+            "tags": {"type": "array", "non_empty": True, "items": "non-empty string"},
+            "style": dict(text_property),
+            "platform": dict(text_property),
+            "source_refs": {
+                "type": "array",
+                "non_empty": True,
+                "evidence_only": True,
+                "items": "object containing a snapshot asset_id and optional source_document_id",
+            },
+        },
+        "constraints": [
+            "所有必填字段必须显式出现在响应中，不得省略 hook/body/ending",
+            "source_refs 只能引用 input_snapshot 中存在且允许使用的证据",
+            "不要输出 Markdown 代码围栏或 JSON 之外的解释",
+        ],
+    }
 
 
 class _IdempotentOutputAgent:
@@ -770,6 +826,7 @@ class DeepSeekOutputAgent(_IdempotentOutputAgent):
                 "user_instruction": instruction,
                 "context_messages": [dict(message) for message in context_messages],
                 "input_snapshot": _snapshot_for_prompt(snapshot),
+                "output_contract": _output_contract(kind),
                 "rules": [
                     "只使用当前博主快照中的未删除资产、地点和长期记忆",
                     "知识事实必须引用可信来源；source_refs 必须返回 asset_id 或 source_document_id",
@@ -797,6 +854,12 @@ class DeepSeekOutputAgent(_IdempotentOutputAgent):
                     "invalid_response": str(first_content)[:20000],
                     "input_snapshot": _snapshot_for_prompt(snapshot),
                     "required": _repair_requirement(kind),
+                    "validation_error": first_error.message,
+                    "missing_fields": first_error.missing_fields,
+                    "repair_instruction": (
+                        "保留所有已经合法的字段和值；只修复校验错误并补齐 missing_fields，"
+                        "不要重写已有事实，不要添加快照外证据或未经确认的业务数据。"
+                    ),
                 }
                 if script is not None:
                     repair_prompt["script"] = dict(script)
@@ -812,7 +875,10 @@ class DeepSeekOutputAgent(_IdempotentOutputAgent):
                     _ensure_generated_structure(kind, normalized, request_id)
                 except OutputAgentError as repaired_error:
                     raise OutputAgentError(
-                        "OUTPUT_INVALID_JSON", "输出 JSON 在一次修复后仍不合法或字段不完整", request_id=request_id
+                        "OUTPUT_INVALID_JSON",
+                        f"输出 JSON 在一次修复后仍不合法: {repaired_error.message}",
+                        request_id=request_id,
+                        missing_fields=repaired_error.missing_fields,
                     ) from repaired_error
             return normalized
 

@@ -169,7 +169,79 @@ def test_deepseek_uses_v4_flash_and_repairs_json_once(monkeypatch: pytest.Monkey
     assert result["title"] == "酸汤鱼"
     assert len(calls) == 2
     assert calls[0]["model"] == "deepseek-v4-flash"
-    assert "input_snapshot" in json.loads(calls[0]["messages"][1]["content"])
+    initial_prompt = json.loads(calls[0]["messages"][1]["content"])
+    assert "input_snapshot" in initial_prompt
+    assert set(initial_prompt["output_contract"]["required_fields"]) == {
+        "category",
+        "title",
+        "hook",
+        "body",
+        "ending",
+        "tags",
+        "style",
+        "platform",
+        "source_refs",
+    }
+    assert initial_prompt["output_contract"]["properties"]["hook"]["non_empty"] is True
+    assert initial_prompt["output_contract"]["properties"]["source_refs"]["evidence_only"] is True
+    repair_prompt = json.loads(calls[1]["messages"][1]["content"])
+    assert repair_prompt["validation_error"] == "模型响应无法解析为 JSON"
+    assert repair_prompt["missing_fields"] == []
+    assert "保留所有已经合法的字段" in repair_prompt["repair_instruction"]
+    assert agent.call_count == 2
+
+
+def test_deepseek_repair_prompt_lists_missing_script_fields(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    key_file = tmp_path / "deepseek.key"
+    key_file.write_text("test-key", encoding="utf-8")
+    monkeypatch.setattr(module, "settings", Settings(deepseek_key_file=key_file))
+    incomplete = _valid_script()
+    incomplete.pop("hook")
+    incomplete.pop("body")
+    incomplete.pop("ending")
+    responses = [json.dumps(incomplete, ensure_ascii=False), json.dumps(_valid_script(), ensure_ascii=False)]
+    calls: list[dict] = []
+
+    def fake_post(*args, **kwargs):
+        calls.append(kwargs["json"])
+        return _Response(responses.pop(0))
+
+    agent = DeepSeekOutputAgent(post=fake_post)
+    result = agent.generate_script([], snapshot(), request_id="missing-fields")
+
+    assert result["hook"]
+    assert len(calls) == 2
+    repair_prompt = json.loads(calls[1]["messages"][1]["content"])
+    assert repair_prompt["missing_fields"] == ["hook", "body", "ending"]
+    assert "hook, body, ending" in repair_prompt["validation_error"]
+    assert agent.call_count == 2
+
+
+def test_deepseek_second_incomplete_response_reports_fields_without_third_call(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    key_file = tmp_path / "deepseek.key"
+    key_file.write_text("test-key", encoding="utf-8")
+    monkeypatch.setattr(module, "settings", Settings(deepseek_key_file=key_file))
+    incomplete = _valid_script()
+    incomplete.pop("body")
+    calls = 0
+
+    def fake_post(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return _Response(json.dumps(incomplete, ensure_ascii=False))
+
+    agent = DeepSeekOutputAgent(post=fake_post)
+    with pytest.raises(OutputAgentError) as error:
+        agent.generate_script([], snapshot(), request_id="still-missing")
+
+    assert error.value.code == "OUTPUT_INVALID_JSON"
+    assert error.value.missing_fields == ["body"]
+    assert "body" in error.value.message
+    assert calls == 2
     assert agent.call_count == 2
 
 

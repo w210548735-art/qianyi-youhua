@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app.api.assessment_routes import router as assessment_router
+from app.api.chat_routes import router as chat_router
 from app.api.feedback_routes import router as feedback_router
 from app.api.memory_routes import router as memory_router
 from app.api.output_routes import router as output_router
@@ -37,6 +38,7 @@ app.include_router(router)
 app.include_router(memory_router)
 app.include_router(place_router)
 app.include_router(assessment_router)
+app.include_router(chat_router)
 app.include_router(output_router)
 app.include_router(feedback_router)
 app.include_router(report_router)
